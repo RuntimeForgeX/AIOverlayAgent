@@ -1,7 +1,7 @@
 import io
 import base64
 from PIL import Image
-from src.config.prompts import load_system_prompt
+from src.prompts.registry import get_default_system_prompt
 from src.config.settings import get_config_value, api_key_env_name, get_api_key, load_environment
 try:
     from langchain_openai import ChatOpenAI
@@ -21,10 +21,10 @@ except ImportError:
 class APIProvider:
     """Base class for AI API providers using LangChain."""
     
-    def __init__(self, config):
+    def __init__(self, config, system_prompt=None):
         self.config = config
         self.conversation_history = []
-        self.system_prompt = load_system_prompt()
+        self.system_prompt = system_prompt or get_default_system_prompt()
         self.llm = None
         self._api_key_env = api_key_env_name(
             get_config_value(config, "API", "provider", "anthropic")
@@ -62,23 +62,21 @@ class APIProvider:
     
     def add_image_message(self, base64_image, text):
         """Add a screenshot message to history."""
-        self.conversation_history.append(
-            HumanMessage(
-                content=[
-                    {"type": "text", "text": text},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        },
-                    },
-                ]
-            )
-        )
+        image_part = {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+        }
+        if text:
+            content = [{"type": "text", "text": text}, image_part]
+        else:
+            content = [image_part]
+        self.conversation_history.append(HumanMessage(content=content))
 
     def add_multi_image_message(self, images_b64, text):
         """Add a multi-image message to history."""
-        content = [{"type": "text", "text": text}]
+        content = []
+        if text:
+            content.append({"type": "text", "text": text})
         for b64 in images_b64:
             content.append({
                 "type": "image_url",
@@ -101,6 +99,10 @@ class APIProvider:
     def clear_history(self):
         """Clear all conversation history."""
         self.conversation_history = []
+
+    def apply_system_prompt(self, prompt_text):
+        """Update the system prompt used for subsequent API calls."""
+        self.system_prompt = prompt_text
 
     def _add_user_content(self, message_content):
         """Add user content to history based on format."""
@@ -229,6 +231,15 @@ class GeminiProvider(APIProvider):
         model_name = get_config_value(self.config, "API_GEMINI", "model", "gemini-2.5-pro")
         self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
         self.llm = genai.GenerativeModel(model_name, system_instruction=self.system_prompt)
+
+    def apply_system_prompt(self, prompt_text):
+        """Rebuild Gemini model so system_instruction takes effect."""
+        self.system_prompt = prompt_text
+        if not genai_available or self.llm is None:
+            return
+        model_name = get_config_value(self.config, "API_GEMINI", "model", "gemini-2.5-pro")
+        self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
+        self.llm = genai.GenerativeModel(model_name, system_instruction=self.system_prompt)
     
     def send_message(self, message_content, on_response, on_error):
         """Send message to Gemini via native API."""
@@ -249,21 +260,23 @@ class GeminiProvider(APIProvider):
                 )
             elif isinstance(message_content, dict) and "images" in message_content:
                 images_b64 = message_content["images"]
-                text = message_content["text"]
+                text = message_content.get("text") or ""
                 self.add_multi_image_message(images_b64, text)
                 pil_images = []
                 for b64 in images_b64:
                     pil_images.append(Image.open(io.BytesIO(base64.b64decode(b64))))
+                payload = pil_images + ([text] if text else [])
                 response = self.llm.generate_content(
-                    pil_images + [text], generation_config=gen_config
+                    payload, generation_config=gen_config
                 )
             else:
                 base64_image = message_content["image"]
-                text = message_content["text"]
+                text = message_content.get("text") or ""
                 self.add_image_message(base64_image, text)
                 image = Image.open(io.BytesIO(base64.b64decode(base64_image)))
+                payload = [image, text] if text else [image]
                 response = self.llm.generate_content(
-                    [image, text], generation_config=gen_config
+                    payload, generation_config=gen_config
                 )
             
             reply = response.text
@@ -278,15 +291,16 @@ class GeminiProvider(APIProvider):
             on_error(str(e))
 
 
-def get_provider(config):
+def get_provider(config, system_prompt=None):
     """Factory function to create the appropriate API provider using LangChain."""
     provider_name = get_config_value(config, "API", "provider", "anthropic").lower()
-    
+    prompt = system_prompt or get_default_system_prompt()
+
     if provider_name == "openai":
-        return OpenAIProvider(config)
+        return OpenAIProvider(config, system_prompt=prompt)
     elif provider_name == "gemini":
-        return GeminiProvider(config)
+        return GeminiProvider(config, system_prompt=prompt)
     else:  # Default to Anthropic
-        return AnthropicProvider(config)
+        return AnthropicProvider(config, system_prompt=prompt)
 
 

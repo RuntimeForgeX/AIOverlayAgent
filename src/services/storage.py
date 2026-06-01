@@ -35,6 +35,37 @@ def load_theme_preference():
     return "dark"
 
 
+def _load_preferences():
+    prefs_file = get_user_data_root() / "preferences.json"
+    try:
+        if prefs_file.exists():
+            return json.loads(prefs_file.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _save_preferences(prefs):
+    prefs_file = get_user_data_root() / "preferences.json"
+    prefs_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        prefs_file.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def save_prompt_profile_id(prompt_id):
+    """Persist selected prompt profile id to AppData."""
+    prefs = _load_preferences()
+    prefs["prompt_profile_id"] = prompt_id
+    _save_preferences(prefs)
+
+
+def load_prompt_profile_id():
+    """Load selected prompt profile id from AppData."""
+    return _load_preferences().get("prompt_profile_id", "any")
+
+
 def save_display_log(display_log):
     """Save chat display log to AppData."""
     history_file = get_user_data_root() / "chat_history.json"

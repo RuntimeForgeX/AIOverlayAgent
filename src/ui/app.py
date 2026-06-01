@@ -20,7 +20,22 @@ from src.config.settings import (
     get_user_data_root,
     load_environment,
 )
-from src.services.storage import load_theme_preference, save_theme_preference, save_display_log, load_display_log, save_screenshot_queue_to_disk, load_screenshot_queue_from_disk
+from src.services.storage import (
+    load_theme_preference,
+    save_theme_preference,
+    save_display_log,
+    load_display_log,
+    save_screenshot_queue_to_disk,
+    load_screenshot_queue_from_disk,
+    load_prompt_profile_id,
+    save_prompt_profile_id,
+)
+from src.prompts import (
+    get_all_prompts,
+    get_prompt_by_id,
+    get_prompt_by_title,
+    get_default_prompt_id,
+)
 from src.services.capture import capture_and_compress_screenshot
 from src.utils.win32_invisibility import (
     apply_capture_exclusion,
@@ -79,9 +94,20 @@ class OverlayApp:
         theme_pref = load_theme_preference()
         set_active_theme(theme_pref)
 
+        self.prompt_profiles = get_all_prompts()
+        saved_prompt_id = load_prompt_profile_id()
+        self.selected_prompt_id = (
+            saved_prompt_id
+            if get_prompt_by_id(saved_prompt_id)
+            else get_default_prompt_id()
+        )
+        initial_prompt = get_prompt_by_id(self.selected_prompt_id)
+
         # Build UI first; API client initializes lazily when you send a message
         self.setup_window()
-        self.provider = get_provider(config)
+        self.provider = get_provider(
+            config, system_prompt=initial_prompt["systemPrompt"]
+        )
         if not self.provider.is_ready():
             self.status_label.config(text="ready · set API key in environment")
 
@@ -249,6 +275,25 @@ class OverlayApp:
             bd=0,
         )
         self.model_dropdown.pack(side=tk.RIGHT, padx=5, pady=8)
+
+        prompt_titles = [p["title"] for p in self.prompt_profiles]
+        initial_prompt_title = get_prompt_by_id(self.selected_prompt_id)["title"]
+        self.prompt_var = tk.StringVar(value=initial_prompt_title)
+        self.prompt_dropdown = InvisibleModelDropdown(
+            self.header_frame,
+            self.prompt_var,
+            prompt_titles,
+            command=self.change_prompt_profile,
+            bg=COLORS["bg_header"],
+            fg=COLORS["accent_blue"],
+            font=("Courier New", 8),
+            relief=tk.FLAT,
+            activebackground=COLORS["bg_input"],
+            activeforeground=COLORS["accent_blue"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.prompt_dropdown.pack(side=tk.RIGHT, padx=5, pady=8)
         
         # Opacity slider (placeholder for now)
         self.opacity_label = tk.Label(
@@ -617,6 +662,13 @@ class OverlayApp:
             activebackground=c["bg_input"], activeforeground=c["accent_green"],
         )
 
+        # Prompt profile dropdown
+        self.prompt_dropdown.configure(bg=c["bg_header"])
+        self.prompt_dropdown.button.configure(
+            bg=c["bg_header"], fg=c["accent_blue"],
+            activebackground=c["bg_input"], activeforeground=c["accent_blue"],
+        )
+
         # Chat
         self.chat_frame.configure(bg=c["bg_chat"])
         self.chat_display.configure(bg=c["bg_chat"], fg=c["text_normal"])
@@ -715,21 +767,21 @@ class OverlayApp:
         self.send_button.config(state=tk.DISABLED)
         self.message_count += 1
 
-        # Build display text
+        # Build display text (screenshot-only sends no default caption)
         if has_screenshots:
             n = len(self.screenshot_queue)
-            prefix = f"[📷 ×{n}] " if n > 1 else "[📷] "
-            display_text = prefix + (message_text or "Analyze screenshot")
+            prefix = f"[📷 ×{n}]" if n > 1 else "[📷]"
+            display_text = f"{prefix} {message_text}".strip() if message_text else prefix
         else:
             display_text = message_text
         
         self.add_message_to_display("you", display_text)
         self.status_label.config(text="thinking...")
         
-        # Build API message content
+        # Build API message content — only user-typed text (may be empty with screenshots)
         if has_screenshots:
             images = [entry["b64"] for entry in self.screenshot_queue]
-            api_text = message_text or "What is shown in these screenshots? Analyze them and provide relevant help."
+            api_text = message_text
             if len(images) == 1:
                 message_content = {"image": images[0], "text": api_text}
             else:
@@ -908,6 +960,21 @@ class OverlayApp:
 
         self.add_system_message(f"[OK] Exported to {filename}")
     
+    def change_prompt_profile(self, title):
+        """Switch the active system prompt profile."""
+        profile = get_prompt_by_title(title)
+        if not profile:
+            self.add_system_message(f"[WARN] Unknown prompt profile: {title}")
+            return
+        if profile["id"] == self.selected_prompt_id:
+            return
+
+        self.selected_prompt_id = profile["id"]
+        save_prompt_profile_id(profile["id"])
+        if self.provider:
+            self.provider.apply_system_prompt(profile["systemPrompt"])
+        self.add_system_message(f"[OK] prompt → {profile['title']}")
+
     def change_model(self, model_name):
         """Change the AI model on the fly."""
         model_map = {
@@ -940,8 +1007,10 @@ class OverlayApp:
             elif provider_name == "gemini":
                 self.config.set("API_GEMINI", "model", model_id)
             
-            # Reinitialize provider
-            self.provider = get_provider(self.config)
+            # Reinitialize provider and restore selected prompt profile
+            profile = get_prompt_by_id(self.selected_prompt_id)
+            system_prompt = profile["systemPrompt"] if profile else None
+            self.provider = get_provider(self.config, system_prompt=system_prompt)
             
             # Clear conversation for new provider
             self.provider.clear_history()

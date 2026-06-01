@@ -26,29 +26,41 @@ def _read_build_config():
     }
 
 
+def _drop_google_discovery_cache(items):
+    """Remove discovery_cache JSON blobs that break one-file extraction on Windows."""
+    filtered = []
+    for item in items:
+        # TOC entries: (dest_name, src_name, typecode) or legacy 2-tuple
+        dest = item[0] if item else ""
+        src = item[1] if len(item) > 1 else ""
+        blob = f"{dest}|{src}".lower()
+        if "discovery_cache" in blob:
+            continue
+        filtered.append(item)
+    return filtered
+
+
 _cfg = _read_build_config()
 
 block_cipher = None
 
 hiddenimports = []
 
-# LangChain providers are optional at runtime, but we bundle them so packaged builds
-# work when the user selects a provider.
-for pkg in [
+# Packages to fully collect. Do NOT collect google.generativeai here — the custom hook
+# bundles it without googleapiclient discovery_cache (thousands of JSON files).
+_COLLECT_PACKAGES = [
     "langchain_openai",
     "langchain_anthropic",
     "langchain_core",
-    "langchain_community",
     "openai",
     "anthropic",
-    "google.generativeai",
     "dotenv",
     "keyboard",
     "PIL",
     "src",
     "src.config",
     "src.config.settings",
-    "src.config.prompts",
+    "src.prompts",
     "src.services",
     "src.services.llm_provider",
     "src.services.capture",
@@ -63,16 +75,41 @@ for pkg in [
     "src.utils",
     "src.utils.win32_invisibility",
     "src.utils.error_handler",
-]:
+]
+
+for pkg in _COLLECT_PACKAGES:
     try:
         hiddenimports += collect_submodules(pkg)
     except Exception:
         pass
 
+# Gemini SDK (handled by build/hook-google.generativeai.py)
+hiddenimports += [
+    "google.generativeai",
+    "google.ai.generativelanguage",
+    "google.api_core",
+    "google.auth",
+    "google.protobuf",
+]
+
 datas = [
     (os.path.join(_PROJECT_ROOT, "app_config.ini"), "."),
     (os.path.join(_PROJECT_ROOT, "config.ini"), "."),
     (os.path.join(_PROJECT_ROOT, "prompts"), "prompts"),
+    # Prompt registry profiles (file-based discovery in frozen builds)
+    (os.path.join(_PROJECT_ROOT, "src", "prompts"), "src/prompts"),
+]
+
+_EXCLUDES = [
+    "googleapiclient",
+    "googleapiclient.discovery_cache",
+    "googleapiclient.discovery_cache.documents",
+    "langchain_community",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+    "tkinter.test",
 ]
 
 a = Analysis(
@@ -81,15 +118,21 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports + ["keyboard", "keyboard._winkeyboard", "keyboard._generic"],
-    hookspath=[],
+    hookspath=[_SPEC_DIR],
     hooksconfig={},
-    runtime_hooks=[os.path.join(_SPEC_DIR, "runtime_keyboard_fix.py")],
-    excludes=[],
+    runtime_hooks=[
+        os.path.join(_SPEC_DIR, "runtime_keyboard_fix.py"),
+        os.path.join(_SPEC_DIR, "runtime_google_fix.py"),
+    ],
+    excludes=_EXCLUDES,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
+
+a.datas = _drop_google_discovery_cache(a.datas)
+a.binaries = _drop_google_discovery_cache(a.binaries)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
@@ -103,7 +146,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
