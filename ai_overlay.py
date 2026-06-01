@@ -5,7 +5,7 @@ Invisible to screen recording software like OBS and Chrome.
 """
 
 import tkinter as tk
-from tkinter import scrolledtext, messagebox, filedialog
+from tkinter import scrolledtext
 import threading
 import time
 import os
@@ -127,21 +127,55 @@ def get_user_data_root(app_name=None):
 
 
 def get_candidate_dotenv_files(app_name=None):
-    """Ordered list of .env locations to load (first ones win)."""
+    """Optional .env locations (used only when a key is not already in the environment)."""
     candidates = []
     try:
         candidates.append(get_user_data_root(app_name) / ".env")
     except Exception:
         pass
-    # Allow a portable .env next to the executable for power users
     try:
         if is_frozen_app():
             candidates.append(Path(sys.executable).parent / ".env")
     except Exception:
         pass
-    # Dev mode: project root
     candidates.append(Path(__file__).parent / ".env")
     return candidates
+
+
+def load_environment():
+    """
+    Load API keys and secrets into os.environ.
+
+    Windows user/system environment variables are already in os.environ and always win.
+    .env files only fill in keys that are not already set (override=False).
+    """
+    for dotenv_file in get_candidate_dotenv_files():
+        try:
+            if dotenv_file.is_file():
+                load_dotenv(dotenv_path=dotenv_file, override=False, encoding="utf-8")
+        except Exception:
+            pass
+
+
+def get_api_key(name):
+    """Read an API key from the process environment (system env or .env)."""
+    value = os.environ.get(name)
+    if value is None:
+        value = os.getenv(name)
+    if not value:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def api_key_env_name(provider_name):
+    """Environment variable name for the configured provider."""
+    mapping = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+    }
+    return mapping.get((provider_name or "").lower(), "ANTHROPIC_API_KEY")
 
 def load_config():
     """Load configuration from config.ini with fallbacks."""
@@ -618,19 +652,32 @@ class APIProvider:
         self.config = config
         self.conversation_history = []
         self.system_prompt = load_system_prompt()
-        # Load environment variables from a predictable per-user location.
-        for dotenv_file in get_candidate_dotenv_files():
-            try:
-                if dotenv_file.exists():
-                    load_dotenv(dotenv_path=dotenv_file, override=False)
-            except Exception:
-                pass
         self.llm = None
+        self._api_key_env = api_key_env_name(
+            get_config_value(config, "API", "provider", "anthropic")
+        )
         self._initialize_llm()
     
     def _initialize_llm(self):
         """Initialize the LangChain LLM. Implemented by subclasses."""
         raise NotImplementedError
+
+    def is_ready(self):
+        return self.llm is not None
+
+    def _ensure_llm(self):
+        """Try to initialize the client (e.g. after keys were added to the environment)."""
+        if self.llm is not None:
+            return True
+        load_environment()
+        self._initialize_llm()
+        return self.llm is not None
+
+    def _missing_key_message(self):
+        return (
+            f"{self._api_key_env} is not set. "
+            f"Add it in Windows Environment Variables or a .env file, then try again."
+        )
     
     def send_message(self, message_content, on_response, on_error):
         """Send message to AI. Implemented by subclasses."""
@@ -679,10 +726,11 @@ class AnthropicProvider(APIProvider):
     
     def _initialize_llm(self):
         """Initialize Claude via LangChain."""
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = get_api_key("ANTHROPIC_API_KEY")
         if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY not found in environment")
-        
+            self.llm = None
+            return
+
         model_name = get_config_value(self.config, "API", "model", "claude-opus-4-5")
         self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
         
@@ -695,6 +743,10 @@ class AnthropicProvider(APIProvider):
     def send_message(self, message_content, on_response, on_error):
         """Send message to Claude via LangChain."""
         try:
+            if not self._ensure_llm():
+                on_error(self._missing_key_message())
+                return
+
             # Add user message
             if isinstance(message_content, str):
                 self.add_text_message(message_content)
@@ -730,10 +782,11 @@ class OpenAIProvider(APIProvider):
     
     def _initialize_llm(self):
         """Initialize GPT via LangChain."""
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = get_api_key("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment")
-        
+            self.llm = None
+            return
+
         model_name = get_config_value(self.config, "API_OPENAI", "model", "gpt-4-turbo")
         self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
         
@@ -746,6 +799,10 @@ class OpenAIProvider(APIProvider):
     def send_message(self, message_content, on_response, on_error):
         """Send message to OpenAI via LangChain."""
         try:
+            if not self._ensure_llm():
+                on_error(self._missing_key_message())
+                return
+
             # Add user message
             if isinstance(message_content, str):
                 self.add_text_message(message_content)
@@ -782,12 +839,14 @@ class GeminiProvider(APIProvider):
     def _initialize_llm(self):
         """Initialize Gemini using native google.generativeai library."""
         if not genai_available:
-            raise ImportError("google-generativeai library not installed")
-        
-        api_key = os.getenv("GEMINI_API_KEY")
+            self.llm = None
+            return
+
+        api_key = get_api_key("GEMINI_API_KEY")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment")
-        
+            self.llm = None
+            return
+
         genai.configure(api_key=api_key)
         model_name = get_config_value(self.config, "API_GEMINI", "model", "gemini-2.5-pro")
         self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
@@ -796,6 +855,13 @@ class GeminiProvider(APIProvider):
     def send_message(self, message_content, on_response, on_error):
         """Send message to Gemini via native API."""
         try:
+            if not self._ensure_llm():
+                if not genai_available:
+                    on_error("google-generativeai is not installed in this build.")
+                else:
+                    on_error(self._missing_key_message())
+                return
+
             if isinstance(message_content, str):
                 self.add_text_message(message_content)
                 response = self.llm.generate_content(
@@ -869,16 +935,12 @@ class OverlayApp:
             "dsa": True
         }
         
-        # Initialize provider
-        try:
-            self.provider = get_provider(config)
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not initialize API provider: {e}\nMake sure you have set up .env with your API key.")
-            self.provider = None
-        
-        # Setup window
+        # Build UI first; API client initializes lazily when you send a message
         self.setup_window()
-        
+        self.provider = get_provider(config)
+        if not self.provider.is_ready():
+            self.status_label.config(text="ready · set API key in environment")
+
         # Register hotkeys
         self.register_hotkeys()
 
@@ -1205,7 +1267,6 @@ class OverlayApp:
     def send_message(self):
         """Send a text message to the AI."""
         if not self.provider:
-            self.add_message_to_display("system", "⚠ API provider not initialized", is_system=True)
             return
         
         if self.is_sending:
@@ -1348,7 +1409,7 @@ class OverlayApp:
     def hotkey_export(self):
         """Export conversation to Markdown (Ctrl+Shift+E)."""
         if not self.provider or not self.provider.conversation_history:
-            messagebox.showwarning("Export", "No conversation to export")
+            self.add_system_message("⚠ No conversation to export")
             return
         
         # Create exports directory in a writable per-user location
@@ -1383,8 +1444,8 @@ class OverlayApp:
         
         # Write file
         filename.write_text(content, encoding="utf-8")
-        
-        messagebox.showinfo("Export", f"Conversation exported to:\n{filename}")
+
+        self.add_system_message(f"✓ Exported to {filename}")
     
     def change_model(self, model_name):
         """Change the AI model on the fly."""
@@ -1407,20 +1468,8 @@ class OverlayApp:
         provider_name, model_id = model_map[model_name]
         
         try:
-            # Check if API key exists for this provider
-            if provider_name == "anthropic":
-                if not os.getenv("ANTHROPIC_API_KEY"):
-                    self.add_system_message("⚠ ANTHROPIC_API_KEY not set in .env")
-                    return
-            elif provider_name == "openai":
-                if not os.getenv("OPENAI_API_KEY"):
-                    self.add_system_message("⚠ OPENAI_API_KEY not set in .env")
-                    return
-            elif provider_name == "gemini":
-                if not os.getenv("GEMINI_API_KEY"):
-                    self.add_system_message("⚠ GEMINI_API_KEY not set in .env")
-                    return
-            
+            load_environment()
+
             # Update config
             self.config.set("API", "provider", provider_name)
             if provider_name == "anthropic":
@@ -1603,15 +1652,60 @@ class OverlayApp:
 # MAIN ENTRY POINT
 # ============================================================================
 
+def _format_exception_message(exc_value):
+    """Short, user-facing error text (no stack traces in the overlay)."""
+    if exc_value is None:
+        return "Unknown error"
+    return str(exc_value).strip() or exc_value.__class__.__name__
+
+
+def install_in_app_error_handlers(root, app):
+    """Route uncaught errors to the chat panel instead of OS dialogs."""
+
+    def show_in_app(exc_value):
+        msg = _format_exception_message(exc_value)
+        if hasattr(app, "add_system_message"):
+            app.add_system_message(f"⚠ Error: {msg}")
+            if hasattr(app, "status_label"):
+                app.status_label.config(text="error · check message above")
+        if hasattr(app, "is_sending"):
+            app.is_sending = False
+        if hasattr(app, "send_button"):
+            try:
+                app.send_button.config(state=tk.NORMAL)
+            except tk.TclError:
+                pass
+
+    def handle_exception(exc_type, exc_value, exc_tb):
+        root.after(0, lambda: show_in_app(exc_value))
+
+    sys.excepthook = handle_exception
+
+    def tk_callback_exception(exc, val, tb):
+        handle_exception(exc, val, tb)
+
+    root.report_callback_exception = tk_callback_exception
+
+    def threading_exception_hook(args):
+        if args.exc_value is not None:
+            handle_exception(args.exc_type, args.exc_value, args.exc_traceback)
+
+    threading.excepthook = threading_exception_hook
+
+
 if __name__ == "__main__":
+    # System/user environment variables first; optional .env fills missing keys only
+    load_environment()
+
     # Load configuration
     config = load_config()
-    
+
     # Create root window
     root = tk.Tk()
-    
+
     # Create app
     app = OverlayApp(root, config)
-    
+    install_in_app_error_handlers(root, app)
+
     # Start event loop
     root.mainloop()
