@@ -11,11 +11,29 @@ from tkinter import scrolledtext
 import keyboard
 
 from src.ui.styles.themes import COLORS, _current_theme_name, set_active_theme, detect_system_theme
-from src.config.settings import get_config_value, WINDOW_TITLE, APP_NAME, is_frozen_app, get_resource_root, get_user_data_root
+from src.config.settings import (
+    get_config_value,
+    WINDOW_TITLE,
+    APP_NAME,
+    is_frozen_app,
+    get_resource_root,
+    get_user_data_root,
+    load_environment,
+)
 from src.services.storage import load_theme_preference, save_theme_preference, save_display_log, load_display_log, save_screenshot_queue_to_disk, load_screenshot_queue_from_disk
 from src.services.capture import capture_and_compress_screenshot
-from src.utils.win32_invisibility import apply_capture_exclusion, get_tkinter_hwnd, hide_window_from_taskbar, InvisibleModelDropdown, InvisibleTopLevel
-from src.services.llm_provider import get_provider
+from src.utils.win32_invisibility import (
+    apply_capture_exclusion,
+    apply_invisibility_to_tkinter_window,
+    get_tkinter_hwnd,
+    get_window_handle,
+    find_window_by_class,
+    hide_window_from_taskbar,
+    make_window_invisible_to_capture,
+    InvisibleModelDropdown,
+    InvisibleTopLevel,
+)
+from src.services.llm_provider import get_provider, HumanMessage, AIMessage
 from src.ui.markdown.renderer import configure_markdown_tags, render_markdown
 # ============================================================================
 # MAIN APPLICATION
@@ -157,11 +175,13 @@ class OverlayApp:
     def apply_invisibility_alternative(self):
         """Fallback if title-based lookup fails."""
         try:
-            hwnd = _user32.FindWindowW("Tk", None)
+            hwnd = get_tkinter_hwnd(self.root) or get_window_handle(WINDOW_TITLE)
+            if not hwnd:
+                hwnd = find_window_by_class("Tk")
             if hwnd and hwnd > 0:
-                print(f"Found window by class name: {hwnd}")
+                print(f"Found fallback window handle: {hwnd}")
                 self.window_hwnd = hwnd
-                if apply_capture_exclusion(verbose=False):
+                if make_window_invisible_to_capture(hwnd):
                     self.window_invisible = True
         except Exception:
             pass
@@ -855,9 +875,13 @@ class OverlayApp:
         
         for msg in self.provider.conversation_history:
             content += "\n"
-            if isinstance(msg, HumanMessage):
+            if HumanMessage is not None and isinstance(msg, HumanMessage):
                 content += "**You:**\n"
-            elif isinstance(msg, AIMessage):
+            elif AIMessage is not None and isinstance(msg, AIMessage):
+                content += "**AI:**\n"
+            elif type(msg).__name__ == "HumanMessage":
+                content += "**You:**\n"
+            elif type(msg).__name__ == "AIMessage":
                 content += "**AI:**\n"
             else:
                 continue

@@ -2,6 +2,8 @@ import os
 import sys
 import configparser
 from pathlib import Path
+
+from dotenv import load_dotenv
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -11,11 +13,16 @@ def is_frozen_app():
     return bool(getattr(sys, "frozen", False))
 
 
+def get_project_root():
+    """Repository root (contains main.py, config.ini, prompts/)."""
+    if is_frozen_app() and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent.parent
+
+
 def get_resource_root():
     """Base folder for bundled, read-only resources."""
-    if is_frozen_app() and hasattr(sys, "_MEIPASS"):
-        return Path(sys._MEIPASS)  # PyInstaller onefile temp extract
-    return Path(__file__).parent
+    return get_project_root()
 
 
 def load_app_config():
@@ -36,7 +43,7 @@ def load_app_config():
             candidates.append(Path(sys.executable).parent / "app_config.ini")
         except Exception:
             pass
-    candidates.append(Path(__file__).parent / "app_config.ini")
+    candidates.append(get_project_root() / "app_config.ini")
 
     for path in candidates:
         try:
@@ -81,7 +88,7 @@ def get_candidate_dotenv_files(app_name=None):
             candidates.append(Path(sys.executable).parent / ".env")
     except Exception:
         pass
-    candidates.append(Path(__file__).parent / ".env")
+    candidates.append(get_project_root() / ".env")
     return candidates
 
 

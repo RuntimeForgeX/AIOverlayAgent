@@ -171,15 +171,25 @@ def make_window_invisible_to_capture(hwnd):
 
 
 def get_window_handle(window_title):
-    """Get HWND for a tkinter window by title."""
+    """Get HWND for a top-level window by title."""
     try:
         hwnd = _user32.FindWindowW(None, window_title)
         if hwnd and hwnd > 0:
             return hwnd
-        print(f"Warning: Could not find window with title '{window_title}'")
         return None
     except Exception as e:
         print(f"Warning: Error getting window handle: {e}")
+        return None
+
+
+def find_window_by_class(class_name):
+    """Get HWND for a top-level window by Win32 class name (e.g. 'Tk')."""
+    try:
+        hwnd = _user32.FindWindowW(class_name, None)
+        if hwnd and hwnd > 0:
+            return hwnd
+        return None
+    except Exception:
         return None
 
 

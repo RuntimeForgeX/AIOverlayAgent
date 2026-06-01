@@ -45,6 +45,23 @@ for pkg in [
     "dotenv",
     "keyboard",
     "PIL",
+    "src",
+    "src.config",
+    "src.config.settings",
+    "src.config.prompts",
+    "src.services",
+    "src.services.llm_provider",
+    "src.services.capture",
+    "src.services.storage",
+    "src.ui",
+    "src.ui.app",
+    "src.ui.styles",
+    "src.ui.styles.themes",
+    "src.ui.markdown",
+    "src.ui.markdown.renderer",
+    "src.utils",
+    "src.utils.win32_invisibility",
+    "src.utils.error_handler",
 ]:
     try:
         hiddenimports += collect_submodules(pkg)
