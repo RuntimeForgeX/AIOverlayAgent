@@ -12,14 +12,22 @@ import os
 import sys
 import base64
 import io
+import json
 import ctypes
 import configparser
 import keyboard
 from datetime import datetime
 from pathlib import Path
-from PIL import ImageGrab, Image
+from PIL import ImageGrab, Image, ImageTk
 from dotenv import load_dotenv
 import re
+
+# Windows registry for system theme detection
+try:
+    import winreg
+    _winreg_available = True
+except ImportError:
+    _winreg_available = False
 
 # LangChain imports
 try:
@@ -40,23 +48,102 @@ except ImportError:
 
 
 # ============================================================================
-# COLOR THEME
+# THEME SYSTEM
 # ============================================================================
 
-COLORS = {
-    "bg_main": "#0a0a0f",
-    "bg_header": "#0f0f1a",
-    "bg_input": "#13131f",
-    "bg_chat": "#0a0a0f",
-    "accent_green": "#00ff88",
-    "accent_blue": "#7dd3fc",
-    "text_normal": "#d4d4d8",
-    "text_dim": "#52525b",
-    "error_red": "#f87171",
-    "code_bg": "#111118",
-    "code_fg": "#fbbf24",
-    "border": "#1e1e2e",
+THEMES = {
+    "dark": {
+        "bg_main": "#0a0a0f",
+        "bg_header": "#0f0f1a",
+        "bg_input": "#13131f",
+        "bg_chat": "#0a0a0f",
+        "accent_green": "#00ff88",
+        "accent_blue": "#7dd3fc",
+        "text_normal": "#d4d4d8",
+        "text_dim": "#52525b",
+        "error_red": "#f87171",
+        "code_bg": "#111118",
+        "code_fg": "#fbbf24",
+        "border": "#1e1e2e",
+        "heading_fg": "#e0e7ff",
+        "bold_fg": "#f0f0f5",
+        "italic_fg": "#c4b5fd",
+        "blockquote_bg": "#12121e",
+        "blockquote_fg": "#a1a1aa",
+        "link_fg": "#60a5fa",
+        "table_header_bg": "#161625",
+        "table_border_fg": "#2e2e42",
+        "thumb_bg": "#161625",
+        "thumb_border": "#2a2a3c",
+        "remove_btn_fg": "#f87171",
+        "code_keyword": "#c678dd",
+        "code_string": "#98c379",
+        "code_comment": "#5c6370",
+        "code_number": "#d19a66",
+    },
+    "light": {
+        "bg_main": "#f8f9fa",
+        "bg_header": "#e9ecef",
+        "bg_input": "#ffffff",
+        "bg_chat": "#f8f9fa",
+        "accent_green": "#16a34a",
+        "accent_blue": "#2563eb",
+        "text_normal": "#1f2937",
+        "text_dim": "#6b7280",
+        "error_red": "#dc2626",
+        "code_bg": "#f1f5f9",
+        "code_fg": "#7c3aed",
+        "border": "#d1d5db",
+        "heading_fg": "#111827",
+        "bold_fg": "#111827",
+        "italic_fg": "#4338ca",
+        "blockquote_bg": "#f3f4f6",
+        "blockquote_fg": "#4b5563",
+        "link_fg": "#2563eb",
+        "table_header_bg": "#e5e7eb",
+        "table_border_fg": "#9ca3af",
+        "thumb_bg": "#e5e7eb",
+        "thumb_border": "#d1d5db",
+        "remove_btn_fg": "#dc2626",
+        "code_keyword": "#7c3aed",
+        "code_string": "#16a34a",
+        "code_comment": "#9ca3af",
+        "code_number": "#d97706",
+    },
 }
+
+# Global mutable reference to current theme colors
+COLORS = dict(THEMES["dark"])
+_current_theme_name = "dark"
+
+
+def set_active_theme(name):
+    """Update the global COLORS dict to the chosen theme."""
+    global COLORS, _current_theme_name
+    resolved = name
+    if name == "system":
+        resolved = detect_system_theme()
+    if resolved not in THEMES:
+        resolved = "dark"
+    _current_theme_name = name  # preserve "system" label
+    COLORS.clear()
+    COLORS.update(THEMES[resolved])
+
+
+def detect_system_theme():
+    """Read Windows personalization registry to detect light/dark preference."""
+    if not _winreg_available:
+        return "dark"
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        )
+        value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+        winreg.CloseKey(key)
+        return "light" if value == 1 else "dark"
+    except Exception:
+        return "dark"
 
 
 # ============================================================================
@@ -211,6 +298,85 @@ def get_config_value(config, section, key, default):
     except:
         pass
     return default
+
+
+# ============================================================================
+# PERSISTENCE HELPERS
+# ============================================================================
+
+def save_theme_preference(theme_name):
+    """Save theme preference to AppData."""
+    prefs_file = get_user_data_root() / "preferences.json"
+    prefs_file.parent.mkdir(parents=True, exist_ok=True)
+    prefs = {}
+    try:
+        if prefs_file.exists():
+            prefs = json.loads(prefs_file.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    prefs["theme"] = theme_name
+    try:
+        prefs_file.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_theme_preference():
+    """Load theme preference from AppData."""
+    prefs_file = get_user_data_root() / "preferences.json"
+    try:
+        if prefs_file.exists():
+            prefs = json.loads(prefs_file.read_text(encoding="utf-8"))
+            return prefs.get("theme", "dark")
+    except Exception:
+        pass
+    return "dark"
+
+
+def save_display_log(display_log):
+    """Save chat display log to AppData."""
+    history_file = get_user_data_root() / "chat_history.json"
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # Keep at most 200 messages
+        trimmed = display_log[-200:]
+        history_file.write_text(json.dumps(trimmed, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_display_log():
+    """Load chat display log from AppData."""
+    history_file = get_user_data_root() / "chat_history.json"
+    try:
+        if history_file.exists():
+            return json.loads(history_file.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return []
+
+
+def save_screenshot_queue_to_disk(queue):
+    """Save up to 5 queued screenshots to AppData."""
+    queue_file = get_user_data_root() / "screenshot_queue.json"
+    queue_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = [{"b64": entry["b64"]} for entry in queue[:5]]
+        queue_file.write_text(json.dumps(data), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_screenshot_queue_from_disk():
+    """Load queued screenshots from AppData."""
+    queue_file = get_user_data_root() / "screenshot_queue.json"
+    try:
+        if queue_file.exists():
+            data = json.loads(queue_file.read_text(encoding="utf-8"))
+            return [entry["b64"] for entry in data if "b64" in entry]
+    except Exception:
+        pass
+    return []
 
 
 # ============================================================================
@@ -689,7 +855,6 @@ class APIProvider:
     
     def add_image_message(self, base64_image, text):
         """Add a screenshot message to history."""
-        # For multimodal, include image as base64 in a more detailed format
         self.conversation_history.append(
             HumanMessage(
                 content=[
@@ -703,6 +868,16 @@ class APIProvider:
                 ]
             )
         )
+
+    def add_multi_image_message(self, images_b64, text):
+        """Add a multi-image message to history."""
+        content = [{"type": "text", "text": text}]
+        for b64 in images_b64:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            })
+        self.conversation_history.append(HumanMessage(content=content))
     
     def add_assistant_message(self, text):
         """Add AI response to history."""
@@ -719,6 +894,20 @@ class APIProvider:
     def clear_history(self):
         """Clear all conversation history."""
         self.conversation_history = []
+
+    def _add_user_content(self, message_content):
+        """Add user content to history based on format."""
+        if isinstance(message_content, str):
+            self.add_text_message(message_content)
+        elif isinstance(message_content, dict):
+            if "images" in message_content:
+                self.add_multi_image_message(
+                    message_content["images"], message_content["text"]
+                )
+            else:
+                self.add_image_message(
+                    message_content["image"], message_content["text"]
+                )
 
 
 class AnthropicProvider(APIProvider):
@@ -747,23 +936,14 @@ class AnthropicProvider(APIProvider):
                 on_error(self._missing_key_message())
                 return
 
-            # Add user message
-            if isinstance(message_content, str):
-                self.add_text_message(message_content)
-            else:
-                self.add_image_message(message_content["image"], message_content["text"])
-            
+            self._add_user_content(message_content)
             self.trim_history()
             
-            # Prepare messages with system prompt
             messages = [SystemMessage(content=self.system_prompt)] + self.conversation_history
-            
-            # Call Claude API via LangChain
             response = self.llm.invoke(messages)
             reply = response.content
             self.add_assistant_message(reply)
             
-            # Get token usage from response metadata
             tokens = {
                 "input": response.response_metadata.get("usage", {}).get("input_tokens", 0),
                 "output": response.response_metadata.get("usage", {}).get("output_tokens", 0)
@@ -803,23 +983,14 @@ class OpenAIProvider(APIProvider):
                 on_error(self._missing_key_message())
                 return
 
-            # Add user message
-            if isinstance(message_content, str):
-                self.add_text_message(message_content)
-            else:
-                self.add_image_message(message_content["image"], message_content["text"])
-            
+            self._add_user_content(message_content)
             self.trim_history()
             
-            # Prepare messages with system prompt
             messages = [SystemMessage(content=self.system_prompt)] + self.conversation_history
-            
-            # Call OpenAI API via LangChain
             response = self.llm.invoke(messages)
             reply = response.content
             self.add_assistant_message(reply)
             
-            # Get token usage from response metadata
             tokens = {
                 "input": response.response_metadata.get("usage", {}).get("prompt_tokens", 0),
                 "output": response.response_metadata.get("usage", {}).get("completion_tokens", 0)
@@ -862,23 +1033,30 @@ class GeminiProvider(APIProvider):
                     on_error(self._missing_key_message())
                 return
 
+            gen_config = genai.types.GenerationConfig(max_output_tokens=self.max_tokens)
+
             if isinstance(message_content, str):
                 self.add_text_message(message_content)
                 response = self.llm.generate_content(
-                    message_content,
-                    generation_config=genai.types.GenerationConfig(max_output_tokens=self.max_tokens)
+                    message_content, generation_config=gen_config
+                )
+            elif isinstance(message_content, dict) and "images" in message_content:
+                images_b64 = message_content["images"]
+                text = message_content["text"]
+                self.add_multi_image_message(images_b64, text)
+                pil_images = []
+                for b64 in images_b64:
+                    pil_images.append(Image.open(io.BytesIO(base64.b64decode(b64))))
+                response = self.llm.generate_content(
+                    pil_images + [text], generation_config=gen_config
                 )
             else:
                 base64_image = message_content["image"]
                 text = message_content["text"]
                 self.add_image_message(base64_image, text)
-                
-                image_bytes = base64.b64decode(base64_image)
-                image = Image.open(io.BytesIO(image_bytes))
-                
+                image = Image.open(io.BytesIO(base64.b64decode(base64_image)))
                 response = self.llm.generate_content(
-                    [image, text],
-                    generation_config=genai.types.GenerationConfig(max_output_tokens=self.max_tokens)
+                    [image, text], generation_config=gen_config
                 )
             
             reply = response.text
@@ -905,6 +1083,291 @@ def get_provider(config):
         return AnthropicProvider(config)
 
 
+# ============================================================================
+# MARKDOWN RENDERER
+# ============================================================================
+
+# Keywords for syntax highlighting (covers Python, JS, TS, C, C++, Java, SQL, Rust, Go)
+_KEYWORDS = {
+    "def", "class", "import", "from", "if", "elif", "else", "for", "while",
+    "return", "try", "except", "finally", "with", "as", "yield", "lambda",
+    "pass", "break", "continue", "and", "or", "not", "in", "is", "None",
+    "True", "False", "raise", "async", "await", "del", "global", "nonlocal",
+    "function", "const", "let", "var", "new", "this", "typeof", "instanceof",
+    "throw", "catch", "switch", "case", "default", "export", "extends",
+    "implements", "interface", "enum", "type", "void",
+    "int", "float", "double", "char", "bool", "string", "long", "short",
+    "unsigned", "signed", "struct", "union", "typedef", "sizeof", "static",
+    "extern", "inline", "virtual", "override", "public", "private", "protected",
+    "abstract", "final", "package", "include", "define", "ifdef", "endif",
+    "namespace", "using", "template", "typename",
+    "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP",
+    "ALTER", "TABLE", "INDEX", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
+    "ON", "NULL", "INTO", "VALUES", "SET", "ORDER", "BY", "GROUP",
+    "HAVING", "LIMIT", "OFFSET", "DISTINCT", "COUNT", "SUM", "AVG", "MAX",
+    "MIN", "LIKE", "BETWEEN", "EXISTS",
+    "fn", "mut", "pub", "mod", "use", "crate", "impl", "trait",
+    "match", "loop", "move", "ref", "self", "Self", "super", "where",
+    "func", "go", "defer", "chan", "select", "range", "map", "make",
+    "null", "undefined", "true", "false", "nil",
+    "print", "println", "printf", "require", "module", "exports",
+}
+
+_KEYWORD_PATTERN = re.compile(
+    r'\b(' + '|'.join(re.escape(kw) for kw in sorted(_KEYWORDS, key=len, reverse=True)) + r')\b'
+)
+
+INLINE_RE = re.compile(r'(`[^`]+`|\*\*[^*]+?\*\*|\*[^*]+?\*)')
+
+
+def configure_markdown_tags(widget, colors):
+    """Configure text widget tags for markdown rendering."""
+    c = colors
+
+    # Headings
+    widget.tag_config("md_h1", foreground=c["heading_fg"],
+                      font=("Courier New", 14, "bold"), spacing1=8, spacing3=4)
+    widget.tag_config("md_h2", foreground=c["heading_fg"],
+                      font=("Courier New", 12, "bold"), spacing1=6, spacing3=3)
+    widget.tag_config("md_h3", foreground=c["heading_fg"],
+                      font=("Courier New", 10, "bold"), spacing1=4, spacing3=2)
+
+    # Inline
+    widget.tag_config("md_bold", foreground=c["bold_fg"],
+                      font=("Courier New", 9, "bold"))
+    widget.tag_config("md_italic", foreground=c["italic_fg"],
+                      font=("Courier New", 9, "italic"))
+    widget.tag_config("md_inline_code", foreground=c["code_fg"],
+                      background=c["code_bg"], font=("Courier New", 9))
+
+    # Code block
+    widget.tag_config("code_block", background=c["code_bg"], foreground=c["code_fg"],
+                      font=("Courier New", 8), lmargin1=16, lmargin2=16, rmargin=8,
+                      spacing1=1, spacing3=1)
+    widget.tag_config("code_lang", foreground=c["text_dim"],
+                      font=("Courier New", 7, "italic"), lmargin1=16)
+
+    # Syntax highlighting (applied on top of code_block)
+    widget.tag_config("code_keyword", foreground=c["code_keyword"])
+    widget.tag_config("code_string", foreground=c["code_string"])
+    widget.tag_config("code_comment", foreground=c["code_comment"])
+    widget.tag_config("code_number", foreground=c["code_number"])
+
+    # Ensure syntax tags override code_block foreground
+    for tag_name in ("code_keyword", "code_string", "code_comment", "code_number"):
+        widget.tag_raise(tag_name, "code_block")
+
+    # Blockquote
+    widget.tag_config("md_blockquote", foreground=c["blockquote_fg"],
+                      background=c["blockquote_bg"], font=("Courier New", 9, "italic"),
+                      lmargin1=20, lmargin2=20)
+
+    # Lists
+    widget.tag_config("md_list", foreground=c["text_normal"],
+                      font=("Courier New", 9), lmargin1=20, lmargin2=30)
+
+    # Table
+    widget.tag_config("md_table", foreground=c["text_normal"],
+                      font=("Courier New", 8), background=c["code_bg"],
+                      lmargin1=8, lmargin2=8)
+    widget.tag_config("md_table_header", foreground=c["heading_fg"],
+                      font=("Courier New", 8, "bold"),
+                      background=c["table_header_bg"], lmargin1=8, lmargin2=8)
+
+    # Horizontal rule
+    widget.tag_config("md_hr", foreground=c["border"],
+                      font=("Courier New", 7), spacing1=4, spacing3=4)
+
+    # Link
+    widget.tag_config("md_link", foreground=c["link_fg"],
+                      font=("Courier New", 9, "underline"))
+
+
+def render_markdown(widget, text, colors):
+    """Parse markdown text and insert into a tkinter Text widget with formatting."""
+    lines = text.split("\n")
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Fenced code block
+        if stripped.startswith("```"):
+            lang = stripped[3:].strip()
+            code_lines = []
+            i += 1
+            while i < len(lines):
+                if lines[i].strip() == "```" or lines[i].strip().startswith("```") and len(lines[i].strip()) == 3:
+                    break
+                code_lines.append(lines[i])
+                i += 1
+            if i < len(lines):
+                i += 1  # skip closing ```
+            _render_code_block(widget, "\n".join(code_lines), lang)
+            continue
+
+        # Heading
+        if stripped.startswith("### "):
+            widget.insert(tk.END, stripped[4:] + "\n", "md_h3")
+        elif stripped.startswith("## "):
+            widget.insert(tk.END, stripped[3:] + "\n", "md_h2")
+        elif stripped.startswith("# "):
+            widget.insert(tk.END, stripped[2:] + "\n", "md_h1")
+
+        # Horizontal rule
+        elif re.match(r'^[-*_]{3,}\s*$', stripped):
+            widget.insert(tk.END, "─" * 40 + "\n", "md_hr")
+
+        # Blockquote
+        elif stripped.startswith("> "):
+            widget.insert(tk.END, "  │ ", "md_blockquote")
+            _render_inline_text(widget, stripped[2:], "md_blockquote")
+            widget.insert(tk.END, "\n")
+
+        # Unordered list
+        elif re.match(r'^[\s]*[-*+]\s', line):
+            indent = len(line) - len(line.lstrip())
+            text_content = re.sub(r'^[\s]*[-*+]\s', '', line)
+            prefix = "  " * (indent // 2) + "  • "
+            widget.insert(tk.END, prefix, "md_list")
+            _render_inline_text(widget, text_content, "md_list")
+            widget.insert(tk.END, "\n")
+
+        # Ordered list
+        elif re.match(r'^[\s]*\d+\.\s', line):
+            match_obj = re.match(r'^[\s]*(\d+)\.\s(.*)$', line)
+            if match_obj:
+                indent = len(line) - len(line.lstrip())
+                num = match_obj.group(1)
+                text_content = match_obj.group(2)
+                prefix = "  " * (indent // 2) + f"  {num}. "
+                widget.insert(tk.END, prefix, "md_list")
+                _render_inline_text(widget, text_content, "md_list")
+                widget.insert(tk.END, "\n")
+
+        # Table
+        elif "|" in stripped and stripped.startswith("|"):
+            table_lines = [line]
+            i += 1
+            while i < len(lines) and "|" in lines[i].strip() and lines[i].strip().startswith("|"):
+                table_lines.append(lines[i])
+                i += 1
+            _render_table(widget, table_lines)
+            continue
+
+        # Empty line
+        elif not stripped:
+            widget.insert(tk.END, "\n")
+
+        # Normal paragraph
+        else:
+            _render_inline_text(widget, line, "ai_text")
+            widget.insert(tk.END, "\n")
+
+        i += 1
+
+
+def _render_inline_text(widget, text, base_tag):
+    """Render text with inline markdown (bold, italic, code) into the widget."""
+    parts = INLINE_RE.split(text)
+    for part in parts:
+        if not part:
+            continue
+        if part.startswith("`") and part.endswith("`") and len(part) > 1:
+            widget.insert(tk.END, part[1:-1], "md_inline_code")
+        elif part.startswith("**") and part.endswith("**") and len(part) > 3:
+            widget.insert(tk.END, part[2:-2], "md_bold")
+        elif part.startswith("*") and part.endswith("*") and len(part) > 1 and not part.startswith("**"):
+            widget.insert(tk.END, part[1:-1], "md_italic")
+        else:
+            widget.insert(tk.END, part, base_tag)
+
+
+def _render_code_block(widget, code_text, lang):
+    """Render a fenced code block with syntax highlighting."""
+    if lang:
+        widget.insert(tk.END, f"  {lang}\n", "code_lang")
+
+    # Record start position for syntax highlighting
+    start_idx = widget.index(tk.END)
+
+    for code_line in code_text.split("\n"):
+        widget.insert(tk.END, f"  {code_line}\n", "code_block")
+
+    end_idx = widget.index(tk.END)
+
+    # Apply syntax highlighting
+    _apply_syntax_highlighting(widget, start_idx, end_idx)
+
+    widget.insert(tk.END, "\n")
+
+
+def _apply_syntax_highlighting(widget, start, end):
+    """Apply basic syntax highlighting to a code range."""
+    try:
+        text = widget.get(start, end)
+        if not text.strip():
+            return
+
+        # Keywords
+        for match in _KEYWORD_PATTERN.finditer(text):
+            s, e = match.span()
+            widget.tag_add("code_keyword", f"{start}+{s}c", f"{start}+{e}c")
+
+        # Strings (double and single quoted)
+        for match in re.finditer(r'("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')', text):
+            s, e = match.span()
+            widget.tag_add("code_string", f"{start}+{s}c", f"{start}+{e}c")
+
+        # Comments (# or //)
+        for match in re.finditer(r'(#[^\n]*|//[^\n]*)', text):
+            s, e = match.span()
+            widget.tag_add("code_comment", f"{start}+{s}c", f"{start}+{e}c")
+
+        # Numbers
+        for match in re.finditer(r'\b(\d+\.?\d*(?:e[+-]?\d+)?)\b', text, re.IGNORECASE):
+            s, e = match.span()
+            widget.tag_add("code_number", f"{start}+{s}c", f"{start}+{e}c")
+    except Exception:
+        pass  # Syntax highlighting is non-critical
+
+
+def _render_table(widget, table_lines):
+    """Render a markdown table as monospace-aligned text."""
+    rows = []
+    has_separator = False
+    for line in table_lines:
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if all(re.match(r'^[-:]+$', c.strip()) for c in cells if c.strip()):
+            has_separator = True
+            continue
+        rows.append(cells)
+
+    if not rows:
+        return
+
+    max_cols = max(len(r) for r in rows)
+    col_widths = [0] * max_cols
+    for row in rows:
+        for j, cell in enumerate(row):
+            if j < max_cols:
+                col_widths[j] = max(col_widths[j], len(cell))
+
+    for idx, row in enumerate(rows):
+        tag = "md_table_header" if idx == 0 and has_separator else "md_table"
+        line_parts = []
+        for j in range(max_cols):
+            cell = row[j] if j < len(row) else ""
+            line_parts.append(cell.ljust(col_widths[j]))
+        widget.insert(tk.END, "  │ " + " │ ".join(line_parts) + " │\n", tag)
+
+        if idx == 0 and has_separator:
+            sep_parts = ["─" * w for w in col_widths]
+            widget.insert(tk.END, "  ├─" + "─┼─".join(sep_parts) + "─┤\n", "md_table")
+
+    widget.insert(tk.END, "\n")
+
 
 # ============================================================================
 # MAIN APPLICATION
@@ -913,6 +1376,10 @@ def get_provider(config):
 class OverlayApp:
     """Main AI Overlay Application."""
     
+    THEME_ICONS = {"dark": "🌙", "light": "☀", "system": "🖥"}
+    THEME_CYCLE = ["dark", "light", "system"]
+    MAX_QUEUE = 10
+
     def __init__(self, root, config):
         self.root = root
         self.config = config
@@ -923,11 +1390,15 @@ class OverlayApp:
         self.message_count = 0
         self.screenshot_count = 0
         self.started_at = datetime.now()
-        self.window_hwnd = None  # Will store window handle for invisibility reapplication
+        self.window_hwnd = None
         self.window_opacity = 0.94
-        self.window_invisible = False  # Track if invisibility was successfully applied
+        self.window_invisible = False
         self._hotkeys_registered = False
         self._hotkey_removers = []
+        self.display_log = []
+        self.screenshot_queue = []  # list of {"b64": str, "photo": PhotoImage}
+        self._loading_history = False
+        self._quick_buttons = []
 
         # Section customization
         self.sections_enabled = {
@@ -937,11 +1408,21 @@ class OverlayApp:
             "dsa": True
         }
         
+        # Load theme preference and apply
+        theme_pref = load_theme_preference()
+        set_active_theme(theme_pref)
+
         # Build UI first; API client initializes lazily when you send a message
         self.setup_window()
         self.provider = get_provider(config)
         if not self.provider.is_ready():
             self.status_label.config(text="ready · set API key in environment")
+
+        # Load persisted chat history
+        self._load_display_log()
+
+        # Load persisted screenshot queue
+        self._load_screenshot_queue_from_disk()
 
         # Register hotkeys after the Win32 window exists
         self.root.after(200, self.register_hotkeys)
@@ -989,10 +1470,8 @@ class OverlayApp:
             pass
         self.root.resizable(False, False)
         
-        # Store opacity for later use
         self.window_opacity = opacity
 
-        # Make draggable and build UI first, then apply capture invisibility
         self.setup_drag()
         self.build_ui()
         self.apply_main_window_invisibility()
@@ -1060,17 +1539,17 @@ class OverlayApp:
     def build_ui(self):
         """Build the UI layout."""
         # Header frame
-        header_frame = tk.Frame(self.root, bg=COLORS["bg_header"], height=40)
-        header_frame.pack(fill=tk.X, padx=0, pady=0)
-        header_frame.pack_propagate(False)
+        self.header_frame = tk.Frame(self.root, bg=COLORS["bg_header"], height=40)
+        self.header_frame.pack(fill=tk.X, padx=0, pady=0)
+        self.header_frame.pack_propagate(False)
         
         # Title and dot
-        title_label = tk.Label(
-            header_frame, text="● AI OVERLAY",
+        self.title_label = tk.Label(
+            self.header_frame, text="● AI OVERLAY",
             fg=COLORS["accent_green"], bg=COLORS["bg_header"],
             font=("Courier New", 10, "bold")
         )
-        title_label.pack(side=tk.LEFT, padx=10, pady=8)
+        self.title_label.pack(side=tk.LEFT, padx=10, pady=8)
         
         # Model selector dropdown
         models = [
@@ -1085,8 +1564,8 @@ class OverlayApp:
             "Claude 4 Sonnet"
         ]
         self.model_var = tk.StringVar(value="Gemini 3 Pro")
-        model_menu = InvisibleModelDropdown(
-            header_frame,
+        self.model_dropdown = InvisibleModelDropdown(
+            self.header_frame,
             self.model_var,
             models,
             command=self.change_model,
@@ -1100,22 +1579,32 @@ class OverlayApp:
             bd=0,
             cursor="hand2",
         )
-        model_menu.pack(side=tk.RIGHT, padx=5, pady=8)
+        self.model_dropdown.pack(side=tk.RIGHT, padx=5, pady=8)
         
         # Opacity slider (placeholder for now)
-        opacity_label = tk.Label(
-            header_frame, text="[opacity]",
+        self.opacity_label = tk.Label(
+            self.header_frame, text="[opacity]",
             fg=COLORS["text_dim"], bg=COLORS["bg_header"],
             font=("Courier New", 8)
         )
-        opacity_label.pack(side=tk.RIGHT, padx=10, pady=8)
+        self.opacity_label.pack(side=tk.RIGHT, padx=5, pady=8)
+
+        # Theme toggle button
+        theme_icon = self.THEME_ICONS.get(_current_theme_name, "🌙")
+        self.theme_btn = tk.Label(
+            self.header_frame, text=theme_icon,
+            fg=COLORS["text_dim"], bg=COLORS["bg_header"],
+            font=("Courier New", 10), cursor="hand2",
+        )
+        self.theme_btn.pack(side=tk.RIGHT, padx=5, pady=8)
+        self.theme_btn.bind("<Button-1>", lambda e: self._cycle_theme())
         
         # Chat history panel
-        chat_frame = tk.Frame(self.root, bg=COLORS["bg_chat"])
-        chat_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self.chat_frame = tk.Frame(self.root, bg=COLORS["bg_chat"])
+        self.chat_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         
         self.chat_display = scrolledtext.ScrolledText(
-            chat_frame,
+            self.chat_frame,
             bg=COLORS["bg_chat"],
             fg=COLORS["text_normal"],
             font=("Courier New", 9),
@@ -1127,20 +1616,41 @@ class OverlayApp:
         self.chat_display.pack(fill=tk.BOTH, expand=True)
         
         # Configure text tags
-        self.chat_display.tag_config("you_label", foreground=COLORS["accent_green"], font=("Courier New", 9, "bold"))
-        self.chat_display.tag_config("ai_label", foreground=COLORS["accent_blue"], font=("Courier New", 9, "bold"))
-        self.chat_display.tag_config("ai_text", foreground=COLORS["accent_blue"])
-        self.chat_display.tag_config("timestamp", foreground=COLORS["text_dim"], font=("Courier New", 8))
-        self.chat_display.tag_config("error", foreground=COLORS["error_red"])
-        self.chat_display.tag_config("code_block", background=COLORS["code_bg"], foreground=COLORS["code_fg"], font=("Courier New", 8))
-        self.chat_display.tag_config("system", foreground=COLORS["text_dim"])
-        
+        self._configure_chat_tags()
+
+        # Thumbnail strip (hidden by default)
+        self.thumb_strip_frame = tk.Frame(self.root, bg=COLORS["bg_input"])
+        # Do not pack yet — shown when screenshots are queued
+
+        self.thumb_canvas = tk.Canvas(
+            self.thumb_strip_frame, bg=COLORS["bg_input"],
+            height=62, highlightthickness=0
+        )
+        self.thumb_inner_frame = tk.Frame(self.thumb_canvas, bg=COLORS["bg_input"])
+
+        self.thumb_canvas.pack(fill=tk.X, expand=True)
+        self.thumb_canvas_window = self.thumb_canvas.create_window(
+            (0, 0), window=self.thumb_inner_frame, anchor="nw"
+        )
+
+        def _on_thumb_frame_configure(event):
+            self.thumb_canvas.configure(scrollregion=self.thumb_canvas.bbox("all"))
+
+        self.thumb_inner_frame.bind("<Configure>", _on_thumb_frame_configure)
+
+        # Horizontal mousewheel scrolling on thumbnail strip
+        def _on_thumb_mousewheel(event):
+            self.thumb_canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        self.thumb_canvas.bind("<MouseWheel>", _on_thumb_mousewheel)
+        self.thumb_inner_frame.bind("<MouseWheel>", _on_thumb_mousewheel)
+
         # Input frame
-        input_frame = tk.Frame(self.root, bg=COLORS["bg_input"])
-        input_frame.pack(fill=tk.X, padx=8, pady=8)
+        self.input_frame = tk.Frame(self.root, bg=COLORS["bg_input"])
+        self.input_frame.pack(fill=tk.X, padx=8, pady=8)
         
         self.input_box = tk.Entry(
-            input_frame,
+            self.input_frame,
             bg=COLORS["bg_input"],
             fg=COLORS["text_normal"],
             font=("Courier New", 9),
@@ -1151,7 +1661,7 @@ class OverlayApp:
         self.input_box.bind("<Return>", lambda e: self.send_message())
         
         self.send_button = tk.Button(
-            input_frame,
+            self.input_frame,
             text="⏎",
             bg=COLORS["accent_green"],
             fg=COLORS["bg_main"],
@@ -1163,52 +1673,32 @@ class OverlayApp:
         self.send_button.pack(side=tk.LEFT, padx=2, pady=5)
         
         # Quick buttons frame
-        buttons_frame = tk.Frame(self.root, bg=COLORS["bg_main"])
-        buttons_frame.pack(fill=tk.X, padx=8, pady=4)
+        self.buttons_frame = tk.Frame(self.root, bg=COLORS["bg_main"])
+        self.buttons_frame.pack(fill=tk.X, padx=8, pady=4)
         
-        tk.Button(
-            buttons_frame,
-            text="📷 Capture",
-            bg=COLORS["bg_header"],
-            fg=COLORS["text_normal"],
-            font=("Courier New", 8),
-            relief=tk.FLAT,
-            command=self.hotkey_capture
-        ).pack(side=tk.LEFT, padx=2)
-        
-        tk.Button(
-            buttons_frame,
-            text="🗑 Clear",
-            bg=COLORS["bg_header"],
-            fg=COLORS["text_normal"],
-            font=("Courier New", 8),
-            relief=tk.FLAT,
-            command=self.hotkey_clear
-        ).pack(side=tk.LEFT, padx=2)
-        
-        tk.Button(
-            buttons_frame,
-            text="💾 Export",
-            bg=COLORS["bg_header"],
-            fg=COLORS["text_normal"],
-            font=("Courier New", 8),
-            relief=tk.FLAT,
-            command=self.hotkey_export
-        ).pack(side=tk.LEFT, padx=2)
-        
-        tk.Button(
-            buttons_frame,
-            text="⚙️ Settings",
-            bg=COLORS["bg_header"],
-            fg=COLORS["text_normal"],
-            font=("Courier New", 8),
-            relief=tk.FLAT,
-            command=self.open_settings
-        ).pack(side=tk.LEFT, padx=2)
+        self._quick_buttons = []
+        btn_defs = [
+            ("📷 Capture", self.hotkey_capture),
+            ("🗑 Clear", self.hotkey_clear),
+            ("💾 Export", self.hotkey_export),
+            ("⚙️ Settings", self.open_settings),
+        ]
+        for text, cmd in btn_defs:
+            btn = tk.Button(
+                self.buttons_frame,
+                text=text,
+                bg=COLORS["bg_header"],
+                fg=COLORS["text_normal"],
+                font=("Courier New", 8),
+                relief=tk.FLAT,
+                command=cmd,
+            )
+            btn.pack(side=tk.LEFT, padx=2)
+            self._quick_buttons.append(btn)
         
         # Status bar
-        status_frame = tk.Frame(self.root, bg=COLORS["border"], height=1)
-        status_frame.pack(fill=tk.X)
+        self.status_frame = tk.Frame(self.root, bg=COLORS["border"], height=1)
+        self.status_frame.pack(fill=tk.X)
         
         self.status_label = tk.Label(
             self.root,
@@ -1218,9 +1708,279 @@ class OverlayApp:
             font=("Courier New", 8)
         )
         self.status_label.pack(fill=tk.X, padx=8, pady=4)
+
+    def _configure_chat_tags(self):
+        """Configure all text tags on the chat display."""
+        c = COLORS
+        self.chat_display.tag_config("you_label", foreground=c["accent_green"],
+                                     font=("Courier New", 9, "bold"))
+        self.chat_display.tag_config("ai_label", foreground=c["accent_blue"],
+                                     font=("Courier New", 9, "bold"))
+        self.chat_display.tag_config("ai_text", foreground=c["accent_blue"])
+        self.chat_display.tag_config("text_normal", foreground=c["text_normal"])
+        self.chat_display.tag_config("timestamp", foreground=c["text_dim"],
+                                     font=("Courier New", 8))
+        self.chat_display.tag_config("error", foreground=c["error_red"])
+        self.chat_display.tag_config("system", foreground=c["text_dim"])
+        self.chat_display.tag_config("screenshot_tag", foreground=c["accent_blue"],
+                                     font=("Courier New", 9, "italic"))
+
+        configure_markdown_tags(self.chat_display, c)
     
+    # ------------------------------------------------------------------
+    # Thumbnail / screenshot queue
+    # ------------------------------------------------------------------
+
+    def _create_thumbnail_photo(self, b64_image, size=(60, 45)):
+        """Create a thumbnail PhotoImage from base64 JPEG."""
+        try:
+            image_bytes = base64.b64decode(b64_image)
+            image = Image.open(io.BytesIO(image_bytes))
+            image.thumbnail(size, Image.Resampling.LANCZOS)
+            return ImageTk.PhotoImage(image)
+        except Exception:
+            return None
+
+    def _add_screenshot_to_queue(self, b64_image):
+        """Add a screenshot to the queue and update the thumbnail strip."""
+        if len(self.screenshot_queue) >= self.MAX_QUEUE:
+            self.add_system_message(f"⚠ Queue full (max {self.MAX_QUEUE})")
+            return
+
+        photo = self._create_thumbnail_photo(b64_image)
+        if photo is None:
+            return
+
+        entry = {"b64": b64_image, "photo": photo}
+        self.screenshot_queue.append(entry)
+        self._rebuild_thumbnail_strip()
+        self._save_screenshot_queue()
+
+    def _remove_screenshot(self, idx):
+        """Remove a screenshot from the queue."""
+        if 0 <= idx < len(self.screenshot_queue):
+            self.screenshot_queue.pop(idx)
+            self._rebuild_thumbnail_strip()
+            self._save_screenshot_queue()
+            n = len(self.screenshot_queue)
+            self.status_label.config(
+                text=f"screenshot removed · {n} pending" if n else "ready"
+            )
+
+    def _move_screenshot(self, idx, direction):
+        """Move a screenshot left (-1) or right (+1) in the queue."""
+        new_idx = idx + direction
+        if 0 <= new_idx < len(self.screenshot_queue):
+            self.screenshot_queue[idx], self.screenshot_queue[new_idx] = \
+                self.screenshot_queue[new_idx], self.screenshot_queue[idx]
+            self._rebuild_thumbnail_strip()
+            self._save_screenshot_queue()
+
+    def _preview_screenshot(self, idx):
+        """Open a full-size preview of a queued screenshot."""
+        if idx >= len(self.screenshot_queue):
+            return
+        b64 = self.screenshot_queue[idx]["b64"]
+        try:
+            image_bytes = base64.b64decode(b64)
+            image = Image.open(io.BytesIO(image_bytes))
+            image.thumbnail((800, 600), Image.Resampling.LANCZOS)
+
+            preview = InvisibleTopLevel(self.root)
+            preview.title("Screenshot Preview")
+            preview.geometry(f"{image.width}x{image.height + 50}")
+            preview.configure(bg=COLORS["bg_main"])
+
+            photo = ImageTk.PhotoImage(image)
+            lbl = tk.Label(preview, image=photo, bg=COLORS["bg_main"])
+            lbl.image = photo
+            lbl.pack(padx=5, pady=5)
+
+            tk.Button(
+                preview, text="Close", command=preview.destroy,
+                bg=COLORS["accent_green"], fg=COLORS["bg_main"],
+                font=("Courier New", 9, "bold"), relief=tk.FLAT,
+            ).pack(pady=5)
+
+            preview.show()
+        except Exception:
+            self.add_system_message("⚠ Could not preview screenshot")
+
+    def _show_thumb_context_menu(self, event, idx):
+        """Show right-click context menu for a thumbnail."""
+        menu = tk.Menu(
+            self.root, tearoff=0,
+            bg=COLORS["bg_input"], fg=COLORS["text_normal"],
+            activebackground=COLORS["accent_green"],
+            activeforeground=COLORS["bg_main"],
+            font=("Courier New", 8),
+        )
+        menu.add_command(label="Preview", command=lambda: self._preview_screenshot(idx))
+        if idx > 0:
+            menu.add_command(label="◀ Move Left", command=lambda: self._move_screenshot(idx, -1))
+        if idx < len(self.screenshot_queue) - 1:
+            menu.add_command(label="Move Right ▶", command=lambda: self._move_screenshot(idx, 1))
+        menu.add_separator()
+        menu.add_command(label="✕ Remove", command=lambda: self._remove_screenshot(idx))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _rebuild_thumbnail_strip(self):
+        """Rebuild the thumbnail strip from the screenshot queue."""
+        for widget in self.thumb_inner_frame.winfo_children():
+            widget.destroy()
+
+        for i, entry in enumerate(self.screenshot_queue):
+            # Regenerate photo if missing (e.g. after persistence load)
+            if entry.get("photo") is None:
+                entry["photo"] = self._create_thumbnail_photo(entry["b64"])
+            if entry["photo"] is None:
+                continue
+
+            container = tk.Frame(
+                self.thumb_inner_frame, bg=COLORS["thumb_bg"],
+                highlightbackground=COLORS["thumb_border"], highlightthickness=1,
+            )
+            container.pack(side=tk.LEFT, padx=3, pady=3)
+
+            img_label = tk.Label(container, image=entry["photo"], bg=COLORS["thumb_bg"])
+            img_label.image = entry["photo"]
+            img_label.pack(side=tk.LEFT, padx=2, pady=2)
+
+            remove_lbl = tk.Label(
+                container, text="×", fg=COLORS["remove_btn_fg"],
+                bg=COLORS["thumb_bg"], font=("Courier New", 9, "bold"),
+                cursor="hand2",
+            )
+            remove_lbl.pack(side=tk.LEFT, padx=(0, 3))
+            remove_lbl.bind("<Button-1>", lambda e, idx=i: self._remove_screenshot(idx))
+
+            # Double-click to preview, right-click for context menu
+            img_label.bind("<Double-Button-1>", lambda e, idx=i: self._preview_screenshot(idx))
+            img_label.bind("<Button-3>", lambda e, idx=i: self._show_thumb_context_menu(e, idx))
+            container.bind("<Button-3>", lambda e, idx=i: self._show_thumb_context_menu(e, idx))
+
+        if self.screenshot_queue:
+            # Pack the strip above the input frame
+            self.thumb_strip_frame.pack(fill=tk.X, padx=8, pady=(0, 4),
+                                        before=self.input_frame)
+        else:
+            self.thumb_strip_frame.pack_forget()
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    def _save_display_log(self):
+        """Save display log to disk."""
+        if self._loading_history:
+            return
+        save_display_log(self.display_log)
+
+    def _load_display_log(self):
+        """Load persisted chat display history and replay into the chat."""
+        history = load_display_log()
+        if not history:
+            return
+        self._loading_history = True
+        for entry in history:
+            role = entry.get("role", "system")
+            text = entry.get("text", "")
+            is_system = entry.get("is_system", False) or role == "system"
+            self.add_message_to_display(role, text, is_system=is_system)
+        self.display_log = list(history)
+        self._loading_history = False
+
+    def _save_screenshot_queue(self):
+        """Save queued screenshots to disk."""
+        save_screenshot_queue_to_disk(self.screenshot_queue)
+
+    def _load_screenshot_queue_from_disk(self):
+        """Load queued screenshots from disk and rebuild the strip."""
+        b64_list = load_screenshot_queue_from_disk()
+        for b64 in b64_list:
+            photo = self._create_thumbnail_photo(b64)
+            self.screenshot_queue.append({"b64": b64, "photo": photo})
+        if self.screenshot_queue:
+            self._rebuild_thumbnail_strip()
+            n = len(self.screenshot_queue)
+            self.status_label.config(text=f"restored {n} queued screenshot(s)")
+
+    # ------------------------------------------------------------------
+    # Theme management
+    # ------------------------------------------------------------------
+
+    def _cycle_theme(self):
+        """Cycle through dark → light → system themes."""
+        try:
+            idx = self.THEME_CYCLE.index(_current_theme_name)
+        except ValueError:
+            idx = 0
+        next_theme = self.THEME_CYCLE[(idx + 1) % len(self.THEME_CYCLE)]
+        set_active_theme(next_theme)
+        save_theme_preference(next_theme)
+        self.theme_btn.config(text=self.THEME_ICONS.get(next_theme, "🌙"))
+        self._apply_theme()
+        self.add_system_message(f"theme → {next_theme}")
+
+    def _apply_theme(self):
+        """Apply current COLORS to all widgets."""
+        c = COLORS
+
+        # Root
+        self.root.configure(bg=c["bg_main"])
+
+        # Header
+        self.header_frame.configure(bg=c["bg_header"])
+        self.title_label.configure(fg=c["accent_green"], bg=c["bg_header"])
+        self.theme_btn.configure(fg=c["text_dim"], bg=c["bg_header"])
+        self.opacity_label.configure(fg=c["text_dim"], bg=c["bg_header"])
+
+        # Model dropdown
+        self.model_dropdown.configure(bg=c["bg_header"])
+        self.model_dropdown.button.configure(
+            bg=c["bg_header"], fg=c["accent_green"],
+            activebackground=c["bg_input"], activeforeground=c["accent_green"],
+        )
+
+        # Chat
+        self.chat_frame.configure(bg=c["bg_chat"])
+        self.chat_display.configure(bg=c["bg_chat"], fg=c["text_normal"])
+        self._configure_chat_tags()  # reconfigure all tags with new colors
+
+        # Thumbnail strip
+        self.thumb_strip_frame.configure(bg=c["bg_input"])
+        self.thumb_canvas.configure(bg=c["bg_input"])
+        self.thumb_inner_frame.configure(bg=c["bg_input"])
+
+        # Input
+        self.input_frame.configure(bg=c["bg_input"])
+        self.input_box.configure(
+            bg=c["bg_input"], fg=c["text_normal"],
+            insertbackground=c["accent_green"],
+        )
+        self.send_button.configure(bg=c["accent_green"], fg=c["bg_main"])
+
+        # Quick buttons
+        self.buttons_frame.configure(bg=c["bg_main"])
+        for btn in self._quick_buttons:
+            btn.configure(bg=c["bg_header"], fg=c["text_normal"])
+
+        # Status
+        self.status_frame.configure(bg=c["border"])
+        self.status_label.configure(bg=c["bg_main"], fg=c["text_dim"])
+
+        # Rebuild thumbnails with new colors
+        self._rebuild_thumbnail_strip()
+
+    # ------------------------------------------------------------------
+    # Chat display
+    # ------------------------------------------------------------------
+
     def add_message_to_display(self, role, text, is_system=False):
-        """Add a message to the chat display."""
+        """Add a message to the chat display with markdown rendering for AI."""
         self.chat_display.config(state=tk.NORMAL)
         
         timestamp = datetime.now().strftime("%H:%M")
@@ -1232,43 +1992,39 @@ class OverlayApp:
                 self.chat_display.insert(tk.END, f"\n{timestamp}  ", "timestamp")
                 self.chat_display.insert(tk.END, "▶ you\n", "you_label")
                 
-                # Handle [Screenshot] placeholder
-                if "[Screenshot]" in text:
-                    parts = text.split("[Screenshot]")
-                    self.chat_display.insert(tk.END, parts[0], "text_normal")
-                    self.chat_display.insert(tk.END, "[Screenshot]", "ai_label")
-                    if len(parts) > 1:
-                        self.chat_display.insert(tk.END, parts[1], "text_normal")
+                # Handle screenshot indicator
+                if "[📷" in text or "[Screenshot]" in text:
+                    self.chat_display.insert(tk.END, text + "\n", "screenshot_tag")
                 else:
-                    self.chat_display.insert(tk.END, text, "text_normal")
-                self.chat_display.insert(tk.END, "\n")
+                    self.chat_display.insert(tk.END, text + "\n", "text_normal")
             
-            else:  # AI response
+            else:  # AI response — full markdown rendering
                 self.chat_display.insert(tk.END, f"\n{timestamp}  ", "timestamp")
                 self.chat_display.insert(tk.END, "◆ ai\n", "ai_label")
-                
-                # Parse code blocks
-                lines = text.split("\n")
-                in_code_block = False
-                for line in lines:
-                    if line.startswith("```"):
-                        in_code_block = not in_code_block
-                        continue
-                    
-                    if in_code_block:
-                        self.chat_display.insert(tk.END, line + "\n", "code_block")
-                    else:
-                        self.chat_display.insert(tk.END, line + "\n", "ai_text")
+                render_markdown(self.chat_display, text, COLORS)
         
         self.chat_display.see(tk.END)
         self.chat_display.config(state=tk.DISABLED)
+
+        # Persist to display log
+        if not self._loading_history:
+            self.display_log.append({
+                "role": role,
+                "text": text,
+                "is_system": is_system,
+            })
+            self._save_display_log()
     
     def add_system_message(self, text):
         """Add a system message."""
         self.add_message_to_display("system", text, is_system=True)
+
+    # ------------------------------------------------------------------
+    # Send / receive
+    # ------------------------------------------------------------------
     
     def send_message(self):
-        """Send a text message to the AI."""
+        """Send a text message (optionally with queued screenshots) to the AI."""
         if not self.provider:
             return
         
@@ -1276,23 +2032,47 @@ class OverlayApp:
             return
         
         message_text = self.input_box.get().strip()
-        if not message_text:
+        has_screenshots = len(self.screenshot_queue) > 0
+
+        if not message_text and not has_screenshots:
             return
         
         self.input_box.delete(0, tk.END)
         self.is_sending = True
         self.send_button.config(state=tk.DISABLED)
         self.message_count += 1
+
+        # Build display text
+        if has_screenshots:
+            n = len(self.screenshot_queue)
+            prefix = f"[📷 ×{n}] " if n > 1 else "[📷] "
+            display_text = prefix + (message_text or "Analyze screenshot")
+        else:
+            display_text = message_text
         
-        # Display user message
-        self.add_message_to_display("you", message_text)
+        self.add_message_to_display("you", display_text)
         self.status_label.config(text="thinking...")
+        
+        # Build API message content
+        if has_screenshots:
+            images = [entry["b64"] for entry in self.screenshot_queue]
+            api_text = message_text or "What is shown in these screenshots? Analyze them and provide relevant help."
+            if len(images) == 1:
+                message_content = {"image": images[0], "text": api_text}
+            else:
+                message_content = {"images": images, "text": api_text}
+            # Clear queue
+            self.screenshot_queue.clear()
+            self._rebuild_thumbnail_strip()
+            self._save_screenshot_queue()
+        else:
+            message_content = message_text
         
         # Send in background thread
         def api_call():
             try:
                 self.provider.send_message(
-                    message_text,
+                    message_content,
                     self.on_api_response,
                     self.on_api_error
                 )
@@ -1330,6 +2110,10 @@ class OverlayApp:
         self.send_button.config(state=tk.NORMAL)
         self.input_box.focus()
         self.status_label.config(text="error · check message above")
+
+    # ------------------------------------------------------------------
+    # Hotkeys
+    # ------------------------------------------------------------------
     
     def hotkey_toggle(self):
         """Toggle window visible/hidden (Ctrl+Shift+Space)."""
@@ -1345,15 +2129,17 @@ class OverlayApp:
             apply_invisibility_to_tkinter_window(self.root)
     
     def hotkey_capture(self):
-        """Capture screen and send to AI (Ctrl+Shift+S)."""
-        if not self.provider or self.is_sending:
+        """Capture screen and queue for sending (Ctrl+Shift+S)."""
+        if not self.provider:
             return
         
         # Hide window, capture, show window
         self.root.withdraw()
         time.sleep(0.25)
         
-        base64_image = capture_and_compress_screenshot()
+        max_w = int(get_config_value(self.config, "CAPTURE", "max_width", "1280"))
+        quality = int(get_config_value(self.config, "CAPTURE", "jpeg_quality", "82"))
+        base64_image = capture_and_compress_screenshot(max_width=max_w, jpeg_quality=quality)
         
         self.root.deiconify()
         self.root.attributes("-topmost", True)
@@ -1362,31 +2148,13 @@ class OverlayApp:
         apply_invisibility_to_tkinter_window(self.root)
         
         if not base64_image:
-            self.add_message_to_display("system", "⚠ Screenshot capture failed", is_system=True)
+            self.add_system_message("⚠ Screenshot capture failed")
             return
         
-        self.is_sending = True
-        self.send_button.config(state=tk.DISABLED)
-        self.message_count += 1
         self.screenshot_count += 1
-        
-        # Display user message
-        self.add_message_to_display("you", "[Screenshot] What is this?")
-        self.status_label.config(text="sending screenshot...")
-        
-        # Send in background thread
-        def api_call():
-            try:
-                self.provider.send_message(
-                    {"image": base64_image, "text": "What is shown in this screenshot? Analyze it and provide relevant help."},
-                    self.on_api_response,
-                    self.on_api_error
-                )
-            except Exception as e:
-                self.on_api_error(str(e))
-        
-        thread = threading.Thread(target=api_call, daemon=True)
-        thread.start()
+        self._add_screenshot_to_queue(base64_image)
+        n = len(self.screenshot_queue)
+        self.status_label.config(text=f"screenshot queued · {n} pending")
     
     def hotkey_clear(self):
         """Clear conversation history (Ctrl+Shift+C)."""
@@ -1401,6 +2169,15 @@ class OverlayApp:
         self.total_output_tokens = 0
         self.message_count = 0
         self.screenshot_count = 0
+
+        # Clear screenshot queue
+        self.screenshot_queue.clear()
+        self._rebuild_thumbnail_strip()
+        self._save_screenshot_queue()
+
+        # Clear display log
+        self.display_log.clear()
+        self._save_display_log()
         
         self.add_system_message("conversation cleared · memory reset")
         self.status_label.config(text="ready · 0 in / 0 out tokens")
@@ -1430,20 +2207,24 @@ class OverlayApp:
         
         for msg in self.provider.conversation_history:
             content += "\n"
-            if msg["role"] == "user":
-                content += "**You:** \n"
+            if isinstance(msg, HumanMessage):
+                content += "**You:**\n"
+            elif isinstance(msg, AIMessage):
+                content += "**AI:**\n"
             else:
-                content += "**AI:** \n"
-            
-            if isinstance(msg["content"], str):
-                content += msg["content"] + "\n"
+                continue
+
+            if isinstance(msg.content, str):
+                content += msg.content + "\n"
+            elif isinstance(msg.content, list):
+                for item in msg.content:
+                    if isinstance(item, dict):
+                        if item.get("type") == "text":
+                            content += item["text"] + "\n"
+                        elif item.get("type") == "image_url":
+                            content += "[screenshot]\n"
             else:
-                # Content is list with image
-                for item in msg["content"]:
-                    if item["type"] == "text":
-                        content += item["text"] + "\n"
-                    elif item["type"] == "image":
-                        content += "[screenshot]\n"
+                content += str(msg.content) + "\n"
         
         # Write file
         filename.write_text(content, encoding="utf-8")
@@ -1495,6 +2276,15 @@ class OverlayApp:
             self.total_output_tokens = 0
             self.message_count = 0
             self.screenshot_count = 0
+
+            # Clear screenshot queue
+            self.screenshot_queue.clear()
+            self._rebuild_thumbnail_strip()
+            self._save_screenshot_queue()
+
+            # Clear display log
+            self.display_log.clear()
+            self._save_display_log()
             
             self.add_system_message(f"✓ switched to {model_name}")
             self.status_label.config(text="ready · 0 in / 0 out tokens")
