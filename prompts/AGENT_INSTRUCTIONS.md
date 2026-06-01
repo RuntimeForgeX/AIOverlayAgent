@@ -1,130 +1,130 @@
 # Agent Instructions
-## How To Build This Project From These Prompts
+## Maintaining and Extending AI Screen Overlay Agent
 
 ---
 
-## You Are An AI Agent
+## Purpose of This Folder
 
-You have been given a folder of prompt files.  
-Your job is to read all of them and build the complete working application.  
-Do not ask clarifying questions. Everything you need is in these files.  
-Build it completely, from scratch, in one pass.
+The `prompts/` directory is the **source of truth** for product intent, memory behavior, system personality, and low-level Windows implementation notes.
+
+The **running app** is `ai_overlay.py` plus `config.ini`, `app_config.ini`, build scripts, and an optional Windows installer — not a greenfield single-file prototype.
+
+When you change behavior, update the relevant prompt file **and** the code, then rebuild the `.exe` if shipping to installed users.
 
 ---
 
 ## Read These Files In This Order
 
-1. `PRD.md` — Read this first. It defines everything: what to build, all features, UI layout, colors, file structure, dependencies.
-2. `memory.md` — Read this second. It defines how conversation history works and all data structures.
-3. `system_prompt.md` — Read this third. Extract the system prompt string from the first code block.
-4. `exploitation.md` — Read this last. It gives you the exact technical implementation details for every capability.
+1. **`PRD.md`** — Features, UI, colors, hotkeys, config format, non-goals
+2. **`memory.md`** — Conversation history, LangChain messages, export, threading (**read carefully before touching API/memory code**)
+3. **`system_prompt.md`** — Default AI personality (loaded from first fenced code block in that file)
+4. **`exploitation.md`** — Screenshots, capture exclusion (DWM), hotkeys, PyInstaller notes
 
 ---
 
-## What To Produce
-
-Create these files exactly:
+## Repository Layout (Current)
 
 ```
 ai-overlay-agent/
-├── ai_overlay.py         ← the complete working application (single Python file)
-├── config.ini            ← configuration file with all settings from PRD.md
-├── requirements.txt      ← pip dependencies from PRD.md
-├── README.md             ← setup and usage instructions
-└── .env.example          ← example showing ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY
+├── ai_overlay.py              # Main application
+├── app_config.ini             # App name, exe name, publisher, version, AppId GUID
+├── config.ini                 # Provider, models, hotkeys, UI, capture settings
+├── .env.example               # API key template (user copies to .env or uses Windows env vars)
+├── requirements.txt           # Runtime Python dependencies
+├── requirements_build.txt     # PyInstaller (build venv only)
+├── prompts/                   # This folder
+├── build/
+│   ├── ai_overlay_agent.spec
+│   ├── build_exe.bat
+│   ├── build_installer.bat
+│   ├── runtime_keyboard_fix.py   # PyInstaller hook for keyboard on Win64
+│   ├── prepare_pyinstaller.py
+│   └── sync_inno_config.py
+├── installer/                 # Inno Setup script + license texts
+├── release/                   # Output: *_Setup.exe (after installer build)
+├── install.bat / run.bat / uninstall.bat
+└── dist/                      # Output: PersonalAiAgentSurya.exe (after exe build)
 ```
 
-Do NOT create the prompts/ folder — that is already provided.
-
-When you build the project from these prompt files, make a git commit after each completed change or logically grouped change set so the work is preserved incrementally.
+Do **not** document or rely on `.venv`, `.venv_build`, `pyinstaller_build/`, or `node_modules/` — those are local/build artifacts.
 
 ---
 
-## Rules For Building ai_overlay.py
+## Architecture Rules
 
-### Structure
-- Single file. No imports from local modules.
-- All code in one `OverlayApp` class plus a `if __name__ == "__main__":` entry point.
-- Class methods named exactly as described in PRD.md architecture section.
+### Application structure
+
+- **Primary UI:** `OverlayApp` class in `ai_overlay.py`
+- **Providers:** `AnthropicProvider`, `OpenAIProvider`, `GeminiProvider` extending `APIProvider`
+- **AI stack:** LangChain (`ChatAnthropic`, `ChatOpenAI`) for Anthropic/OpenAI; `google.generativeai` for Gemini
+- **Config:** `configparser` + `get_config_value()` with defaults everywhere
+- **Branding:** `app_config.ini` → `APP_NAME`, `WINDOW_TITLE`, `APPDATA_FOLDER`, installer exe name
 
 ### UI
-- Use tkinter only. No third-party UI libraries.
-- Implement every widget described in the PRD.md layout section.
-- Use the exact hex color values from PRD.md color theme section.
-- Font: "Courier New" throughout — monospace fits the dark terminal aesthetic.
+
+- **tkinter only** — no third-party UI frameworks
+- Font: **Courier New** throughout
+- Colors: `COLORS` dict in `ai_overlay.py` (must match PRD hex values)
+- Extra UI beyond original PRD: model dropdown, Settings (response sections), system prompt editor
 
 ### Hotkeys
-- Register all 5 hotkeys from PRD.md hotkey table.
-- Use the keyboard library for global hotkeys.
-- Read hotkey strings from config.ini, with hardcoded defaults as fallback.
 
-### Screenshot
-- Hide window → wait 250ms → capture → show window. Always in this order.
-- Compress screenshot as described in exploitation.md section 1.
-- Encode as base64 JPEG before sending to API.
+- Library: **`keyboard`** (global hotkeys) — do not replace with another hook library unless explicitly requested
+- Read combos from `config.ini` `[HOTKEYS]` with PRD defaults as fallback
+- Callbacks **must** use `_schedule_on_main_thread()` — `keyboard` fires on a background thread; Tk is not thread-safe
+- Packaged builds: keep `build/runtime_keyboard_fix.py` in the PyInstaller spec `runtime_hooks`
+- Register after UI exists: `root.after(200, self.register_hotkeys)`
 
-### API calls
-- Always run in a background daemon thread.
-- Always pass full conversation_history as messages.
-- Always pass the system prompt through the provider's native system-instruction mechanism.
-- Read provider, model, and max_tokens from config.ini.
-- Support the latest stable Anthropic, OpenAI, and Gemini model families through a configurable provider setting.
-- On success: append reply to history, update UI via root.after().
-- On error: remove last user message from history, show error in chat.
+### Screenshots
 
-### Memory
-- Follow memory.md exactly for all data structures and flow.
-- Implement auto-trim at 30 messages as described in exploitation.md.
+- Hide overlay → wait (default 250 ms from config / code) → `ImageGrab.grab()` → show overlay → re-apply capture exclusion
+- Compress: max width 1280, JPEG quality 82 (configurable in `[CAPTURE]`)
+- Send as base64 JPEG inside LangChain `image_url` content
 
-### System prompt loading
-- Try to load from prompts/system_prompt.md at startup.
-- Parse first fenced code block content.
-- Fall back to hardcoded default string if file not found.
+### API and memory
 
-### Export
-- Implement as described in exploitation.md section 8.
-- Create exports/ folder if needed.
+- Follow **`memory.md`** exactly for history, trim, errors, export paths
+- System prompt: `SystemMessage` at invoke time only — never in `conversation_history`
+- API calls in **daemon threads**; UI via `root.after(0, ...)`
+- **Lazy API init:** missing keys must not crash startup; errors only in chat when user sends a message
+- **No `messagebox`** for errors — in-app system messages only
 
-### Config loading
-- Use configparser to read config.ini.
-- Every configparser call must have a fallback value so app works even without config.ini.
+### Environment / API keys
 
-### API key
-- Load from .env using python-dotenv.
-- Fall back to the environment variable that matches the configured provider: ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.
-- If none are found, print a clear warning but do not crash on launch.
+- `load_environment()` at startup: Windows env vars win; `.env` fills missing keys only (`override=False`)
+- Keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` via `get_api_key()`
 
----
+### Capture exclusion (invisibility)
 
-## Rules For README.md
+- Use **`SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)`** on all process HWNDs
+- Do **not** rely on `WS_EX_NOREDIRECTIONBITMAP` alone — it breaks DWM exclusion (documented in `exploitation.md`)
+- Re-apply on show, focus, and periodic poll (Meet/OBS)
 
-Include exactly:
-1. One-line description of what the app is
-2. Prerequisites (Python 3.10+, Windows 10/11)
-3. Installation steps (git clone / download → python -m venv .venv → activate venv → pip install -r requirements.txt → create .env)
-4. How to run (python ai_overlay.py)
-5. Hotkeys table (copy from PRD.md)
-6. How to customize AI behavior (edit prompts/system_prompt.md)
-7. Note about these prompt files being usable to rebuild the project with any AI
+### Build and install
+
+```bat
+build\build_exe.bat          # → dist\<exe_base_name>.exe
+build\build_installer.bat    # → release\<AppName>_Setup.exe
+```
+
+Work path for PyInstaller uses `%TEMP%` to avoid OneDrive lock errors.
 
 ---
 
-## Quality Checks Before Finishing
+## Quality Checks Before Finishing a Change
 
-Before you consider the build complete, verify:
+- [ ] App launches without API key (status: ready · set API key in environment)
+- [ ] All 5 global hotkeys work when installed `.exe` is running (not only from `python ai_overlay.py`)
+- [ ] Hotkey handlers update UI without threading errors
+- [ ] Screenshot excludes overlay from capture; overlay visible to user locally
+- [ ] Full history sent each turn; clear resets list + UI
+- [ ] API error removes last user message and shows ⚠ in chat only
+- [ ] Export writes to `%APPDATA%\<appdata_folder>\exports\`
+- [ ] Model switch clears history and re-inits provider
+- [ ] `memory.md` / PRD updated if behavior changed
 
-- [ ] App launches without errors when API key is not set (just shows warning)
-- [ ] All 5 hotkeys are registered
-- [ ] Overlay stays on top of other windows
-- [ ] Screenshot hides overlay, captures, shows overlay again
-- [ ] API responses appear in chat with correct colors and labels
-- [ ] Conversation history is passed correctly on every API call
-- [ ] Clear resets both UI and history list
-- [ ] Export creates a readable Markdown file
-- [ ] All colors match the hex values in PRD.md
-- [ ] No tkinter calls from background threads (use root.after)
-- [ ] Config.ini controls model, max_tokens, hotkeys, UI dimensions
-- [ ] Overlay is invisible to OBS, Chrome screen share, and other screen capture software (test by recording with OBS or Chrome)
-- [ ] Overlay remains visible to the user on their own screen while being hidden from recordings
+---
 
-When you make changes to any prompt file, create a git commit for those prompt changes before moving on to the next task.
+## Git
+
+When the user asks for commits: one logical change per commit; do not commit `.env`, `dist/`, `release/`, or venv folders.

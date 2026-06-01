@@ -1,69 +1,96 @@
 # Memory Design
 ## AI Screen Overlay Agent
 
+This document describes how **conversation memory** works in the shipped application (`ai_overlay.py`). Use it when changing providers, export, or session behavior.
+
 ---
 
 ## The Core Problem
 
-The selected AI API is **completely stateless**.  
-The model remembers nothing between API calls.  
-Therefore, the application must manually pass the entire conversation history on every single request.
+The selected AI API is **stateless**. The model does not remember prior turns unless we send them again.
+
+Therefore, on **every** API call the app must send:
+
+1. The **system prompt** (via the provider’s system-instruction mechanism — **not** stored in history)
+2. The full **`conversation_history`** list for the current session
 
 ---
 
-## The Solution: conversation_history List
+## Where Memory Lives
 
-Maintain one Python list in memory:
+| Data | Location | Lifetime |
+|------|----------|----------|
+| Conversation turns | `APIProvider.conversation_history` | Until clear, model switch, or app exit |
+| System prompt | `APIProvider.system_prompt` | Loaded at provider init; editable in Settings |
+| Session counters | `OverlayApp` fields | Until clear or app exit |
+| Persistent chat export | `%APPDATA%\<appdata_folder>\exports\` | On disk after export only |
 
-```
-conversation_history = []
-```
+`appdata_folder` comes from `app_config.ini` (default: `PersonalAiAgentSurya`).
 
-This list holds every message ever sent in the current session.  
-On every API call, pass the entire list as the `messages` parameter.  
-When the user clears chat, set this list back to `[]`.
+There is **no** database and **no** automatic save of chat between app restarts.
 
 ---
 
-## Message Format Rules
+## History Structure (LangChain)
 
-The list must follow the internal canonical message format used by the app. The provider adapter translates it into the selected API's schema.
+History is a Python **list** on the active provider instance:
 
-### Text-only message (user typed a question):
-```
-{
-    "role": "user",
-    "content": "How do I fix this error?"
-}
+```python
+self.conversation_history = []  # list of LangChain message objects
 ```
 
-### Screenshot message (user pressed capture hotkey):
+### Message types in history
+
+| Type | Class | When added |
+|------|--------|------------|
+| User text | `HumanMessage(content="...")` | User sends typed message |
+| User screenshot | `HumanMessage(content=[...])` | User triggers capture hotkey |
+| Assistant reply | `AIMessage(content="...")` | Successful API response |
+
+### What is **not** in history
+
+- `SystemMessage` — system prompt is prepended only at invoke time:
+  ```python
+  messages = [SystemMessage(content=self.system_prompt)] + self.conversation_history
+  ```
+- Token totals, timestamps shown in UI, or session metadata
+
+---
+
+## Message Content Formats
+
+### Text-only user message
+
+```python
+HumanMessage(content="How do I fix this error?")
 ```
-{
-    "role": "user",
-    "content": [
+
+### Screenshot user message (Anthropic / OpenAI via LangChain)
+
+```python
+HumanMessage(
+    content=[
+        {"type": "text", "text": "What is shown in this screenshot? ..."},
         {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": "<base64 string of compressed JPEG screenshot>"
-            }
+            "type": "image_url",
+            "image_url": {
+                "url": "data:image/jpeg;base64,<base64_jpeg_string>"
+            },
         },
-        {
-            "type": "text",
-            "text": "What is wrong on my screen?"
-        }
     ]
-}
+)
 ```
 
-### AI response message:
-```
-{
-    "role": "assistant",
-    "content": "The error you see is a NullPointerException on line 42..."
-}
+Order in the list: **text first**, then **image_url**. JPEG base64 comes from `capture_and_compress_screenshot()` (max width 1280, quality 82 by default from `config.ini` `[CAPTURE]`).
+
+### Gemini provider
+
+Gemini uses `google.generativeai` directly (not LangChain for the invoke). History still stores `HumanMessage` / `AIMessage` for consistency; the provider converts to native image + text when calling `generate_content`.
+
+### Assistant message
+
+```python
+AIMessage(content="The error on line 42 is ...")
 ```
 
 ---
@@ -71,107 +98,172 @@ The list must follow the internal canonical message format used by the app. The 
 ## Message Flow
 
 ```
-User action (type or capture)
+User types or presses capture hotkey
+        ↓
+(Optional) _ensure_llm() — load API key from env / .env if not ready yet
         ↓
 Append user message to conversation_history
         ↓
-Call the selected provider API with full conversation_history
+trim_history() if len > 30
         ↓
-Get reply from API
+Background thread: provider.send_message(...)
         ↓
-Append assistant reply to conversation_history
+Prepend SystemMessage + invoke API with full conversation_history
         ↓
-Display reply in chat panel
+On success: append AIMessage(reply), on_response → root.after → update UI
         ↓
-[Repeat for every turn]
+On failure: pop last HumanMessage if present, on_error → root.after → in-app ⚠ message
 ```
+
+**Never** call the API on the Tk main thread.
 
 ---
 
 ## Error Recovery
 
-If the API call fails, remove the last user message from history.  
-This prevents the history from getting out of sync (user message without a reply).
+If the API call fails **after** the user message was appended:
 
+```python
+if self.conversation_history and isinstance(self.conversation_history[-1], HumanMessage):
+    self.conversation_history.pop()
+on_error(str(e))  # shows in chat panel only — no Windows system dialogs
 ```
-on API error:
-    if last message in history has role == "user":
-        remove it from history
-    show error message in chat panel
-```
+
+Missing API key (lazy init):
+
+- App **still launches**; `provider.llm` may be `None` until first send.
+- First send calls `_ensure_llm()`; if still no key, user sees an in-app message naming the env var (e.g. `GEMINI_API_KEY`).
 
 ---
 
-## Memory Reset
+## Memory Reset (Clear)
 
-Three things happen when user clears:
+Triggered by **Ctrl+Shift+C**, Clear button, or equivalent.
 
-1. Set `conversation_history = []`
-2. Clear the chat display widget
-3. Show system message: "conversation cleared · memory reset"
-
----
-
-## History Size Management
-
-Large-context models from Anthropic, OpenAI, and Gemini support long histories.  
-A screenshot uses roughly 1,000–2,000 tokens.  
-A text message uses roughly 50–200 tokens.
-
-For safety, implement auto-trimming when history exceeds 30 messages:
-- Always keep the first 2 messages (they set early context)
-- Keep the most recent 28 messages
-- Drop everything in between silently
+1. `provider.clear_history()` → `conversation_history = []`
+2. Clear `ScrolledText` chat widget
+3. Reset `OverlayApp` counters: `total_input_tokens`, `total_output_tokens`, `message_count`, `screenshot_count`
+4. System line in chat: `conversation cleared · memory reset`
+5. Status bar: `ready · 0 in / 0 out tokens`
 
 ---
 
-## Session Metadata (Track Separately)
+## Model / Provider Switch
 
-Keep a second dict for session stats — do NOT include this in API calls:
+Changing the header model dropdown:
 
-```
-session = {
-    "started_at": datetime when app launched,
-    "message_count": integer, increments each turn,
-    "screenshot_count": integer, increments each capture,
-    "total_input_tokens": running total from API responses,
-    "total_output_tokens": running total from API responses
-}
+1. `load_environment()` (refresh keys)
+2. Update `config.ini` sections `[API]`, `[API_OPENAI]`, or `[API_GEMINI]`
+3. `self.provider = get_provider(self.config)` — **new** empty `conversation_history`
+4. Clear chat UI and session counters
+5. System line: `✓ switched to <model name>`
+
+Memory does **not** carry across providers.
+
+---
+
+## History Size Management (Auto-Trim)
+
+When `len(conversation_history) > 30`:
+
+```python
+conversation_history = conversation_history[:2] + conversation_history[-28:]
 ```
 
-Show token totals in the status bar after each response.
+- **Keep** first 2 messages (early session context)
+- **Keep** last 28 messages (recent context)
+- **Drop** middle messages silently (no UI notification)
+
+Called via `trim_history()` immediately before each API invoke.
 
 ---
 
-## Persistent Memory (Export Only)
+## Session Metadata (OverlayApp — Not Sent to API)
 
-The app does NOT save memory between sessions by default.  
-When the user exports (Ctrl+Shift+E), save to a Markdown file.
+Tracked on `OverlayApp`, **not** included in API payloads:
 
-Export rules:
-- Save to `exports/` folder (create if not exists)
-- Filename: `chat_YYYYMMDD_HHMMSS.md`
-- For messages with screenshots: write `[screenshot]` as placeholder — do NOT save the base64 image data (too large, not useful in a text file)
-- For text messages: write the content as-is
+| Field | Meaning |
+|-------|---------|
+| `started_at` | `datetime` when app opened |
+| `message_count` | User turns (text + capture) |
+| `screenshot_count` | Capture hotkey uses only |
+| `total_input_tokens` | Sum from API metadata (Gemini may report `0`) |
+| `total_output_tokens` | Sum from API metadata |
 
----
+Status bar after each success:
 
-## The system Prompt Is NOT In History
-
-The system prompt is passed using the provider's native system-instruction field in every API call.  
-It is never added to `conversation_history`.  
-This means it takes no space in the visible chat history but always influences AI behavior.
+`ready · <input> in / <output> out tokens`
 
 ---
 
-## Threading Rule
+## Export (Persistent Memory)
 
-All API calls must run in a background thread.  
-Never call the provider API on the main thread — it will freeze the UI.
+**Hotkey:** Ctrl+Shift+E  
+**Folder:** `%APPDATA%\<appdata_folder>\exports\` (created if missing)  
+**Filename:** `chat_YYYYMMDD_HHMMSS.md`
 
-Pattern:
-```
-threading.Thread(target=api_call_function, args=(question,), daemon=True).start()
-```
+### Export content rules
 
-All UI updates from background threads must use `root.after(0, callback)` — never update tkinter widgets directly from a background thread.
+- Header: `# AI Overlay Export`, date, `---`
+- For each item in `conversation_history`:
+  - `HumanMessage` → `**You:**`
+  - `AIMessage` → `**AI:**`
+  - String `content` → write as-is
+  - List `content` (multimodal):
+    - `type == "text"` → write text
+    - `type == "image_url"` or image blocks → write `[screenshot]` only (no base64 in file)
+
+Success feedback: in-app system message `✓ Exported to <full path>`.
+
+Implementers iterating history must use **`isinstance(msg, HumanMessage)`** / **`AIMessage`**, not `msg["role"]` dict access.
+
+---
+
+## Configuration and API Keys (Affects Memory Only Indirectly)
+
+Keys are read via `get_api_key()` after `load_environment()`:
+
+1. **Windows user/system environment variables** (already in `os.environ`) — highest priority
+2. **Optional `.env` files** (`override=False`) — only set vars not already defined:
+   - `%APPDATA%\<appdata_folder>\.env`
+   - Next to installed `.exe` (frozen app)
+   - Project root `.env` (development)
+
+`config.ini` resolution order:
+
+1. `%APPDATA%\<appdata_folder>\config.ini`
+2. Next to `.exe` (frozen)
+3. Bundled copy inside the app / PyInstaller extract
+
+---
+
+## Threading and Hotkeys
+
+| Rule | Detail |
+|------|--------|
+| API work | `threading.Thread(..., daemon=True)` |
+| UI updates from API thread | `self.root.after(0, lambda: ...)` |
+| Global hotkeys | `keyboard` library — `keyboard.add_hotkey(...)` |
+| Hotkey → UI | Always wrap handler with `_schedule_on_main_thread(...)` |
+| Packaged builds | PyInstaller `runtime_keyboard_fix.py` hook for 64-bit Windows |
+
+Hotkeys are registered ~200 ms after UI build (`root.after(200, self.register_hotkeys)`). On exit, stored removers unregister hotkeys.
+
+---
+
+## PyInstaller / Installed App Notes
+
+- `prompts/system_prompt.md` is bundled under `prompts/` in the one-file extract (`sys._MEIPASS`).
+- Conversation history remains **RAM-only** unless the user exports.
+- Rebuild after prompt or memory-behavior changes: `build\build_exe.bat` then `build\build_installer.bat`.
+
+---
+
+## Quick Reference Checklist for Developers
+
+- [ ] System prompt never appended to `conversation_history`
+- [ ] Failed turn removes dangling `HumanMessage`
+- [ ] `trim_history()` before every invoke when len > 30
+- [ ] Screenshot path: withdraw overlay → delay → grab → deiconify → re-apply capture exclusion
+- [ ] All chat errors shown in overlay, not `messagebox`
+- [ ] Export uses LangChain message types and `%APPDATA%` exports path

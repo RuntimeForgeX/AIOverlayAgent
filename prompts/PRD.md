@@ -5,113 +5,103 @@
 
 ## What You Are Building
 
-A **Windows desktop overlay application** written in Python.  
-It is a floating, transparent, always-on-top window that acts as an AI assistant.  
-The AI can **see the user's screen** via screenshots and respond with text answers.  
-The user controls everything with **keyboard shortcuts only** — no mouse required.
+A **Windows desktop overlay** in Python: a floating, always-on-top, semi-transparent window that acts as an AI assistant.
 
-This is NOT a web app. NOT a browser extension. It is a native Windows Python desktop app.
+- The AI can **see the screen** via on-demand screenshots (multimodal APIs).
+- The user can drive the app with **keyboard shortcuts** (global hotkeys) and minimal mouse use.
+- The overlay is **excluded from screen capture** (OBS, Meet, Zoom full-screen share) so viewers do not see the helper.
+
+This is a **native Windows** app (tkinter), not a web app or browser extension.
+
+**Shipped form:** PyInstaller one-file `.exe` + optional Inno Setup installer (`release\*_Setup.exe`).
 
 ---
 
 ## Core Purpose
 
-Give the user an AI co-pilot that:
-1. Floats invisibly over any other app
-2. Can screenshot the screen on demand and send it to a configurable AI model
-3. Answers questions about what it sees (code, errors, documents, UI, anything)
-4. Remembers the conversation within the session
-5. Never steals focus or interrupts workflow
+1. Float over any app without appearing in recordings (when capture exclusion works)
+2. Screenshot on demand and send to a **configurable** provider (Anthropic, OpenAI, or Gemini)
+3. Answer questions about code, errors, documents, or UI visible on screen
+4. Remember the **session** conversation until cleared or provider switched
+5. Stay out of the way — hotkeys work while hidden
 
 ---
 
-## Tech Stack
+## Tech Stack (Implemented)
 
 | Layer | Choice |
 |-------|--------|
-| Language | Python 3.10+ |
-| UI Framework | tkinter (built-in, no install needed) |
-| AI Backend | Anthropic, OpenAI, or Gemini API (configurable latest model family) |
-| Screenshot | Pillow — `ImageGrab.grab()` |
-| Hotkeys | `keyboard` library (global, works even when app is hidden) |
-| Image encoding | base64 (for sending to API) |
-| Config | `configparser` reading `config.ini` |
-| API key | `python-dotenv` loading `.env` file |
+| Language | Python 3.10+ (builds tested on 3.14) |
+| UI | tkinter |
+| AI (Anthropic / OpenAI) | LangChain — `ChatAnthropic`, `ChatOpenAI` |
+| AI (Gemini) | `google-generativeai` |
+| Screenshot | Pillow `ImageGrab.grab()` |
+| Global hotkeys | **`keyboard`** library + main-thread scheduling |
+| Config | `configparser` — `config.ini`, `app_config.ini` |
+| API keys | `python-dotenv` + **Windows environment variables** (env wins over `.env`) |
+| Capture exclusion | Win32 `SetWindowDisplayAffinity` (`WDA_EXCLUDEFROMCAPTURE`) |
+| Packaging | PyInstaller + Inno Setup 6 |
 
-### Recommended model defaults
+### Default model examples (config.ini)
 
-Use the latest stable model family available from the selected provider, for example:
-- Anthropic: Claude Opus class model such as `claude-opus-4-5`
-- OpenAI: GPT-5 class model such as `gpt-5.4`
-- Gemini: Gemini Pro class model such as `gemini-2.5-pro`
+| Provider | Example model id |
+|----------|------------------|
+| Anthropic | `claude-opus-4-5`, `claude-3-5-sonnet` |
+| OpenAI | `gpt-5.4`, `gpt-4o`, `gpt-4o-mini` |
+| Gemini | `gemini-3-pro`, `gemini-2.5-pro` |
+
+Header dropdown maps friendly names to provider + model id (see `change_model` in `ai_overlay.py`).
 
 ---
 
-## All Features To Build
+## Features
 
-### Must Have
-- Floating window, always on top (`root.attributes("-topmost", True)`)
-- Adjustable transparency (`root.attributes("-alpha", 0.92)`)
-- **Invisible to screen capture and recording software** (OBS, Chrome screen share, ScreenFlow, etc.) so the overlay does not appear in recorded videos or shared screens
-- Draggable window (click-drag on header bar)
-- Scrollable chat history panel
-- Text input bar at the bottom
-- Send button + Enter key to submit
-- Global hotkey: **Ctrl+Shift+Space** → toggle show/hide window
-- Global hotkey: **Ctrl+Shift+S** → hide window → take screenshot → show window → send to AI
-- Global hotkey: **Ctrl+Shift+C** → clear conversation memory
-- Global hotkey: **Ctrl+Shift+I** → focus the text input box
-- Global hotkey: **Ctrl+Shift+E** → export chat to a `.md` file
-- When capturing screen with the app hotkey (Ctrl+Shift+S): hide the overlay first, wait 250ms, screenshot, then show overlay again (so overlay does not appear in the screenshot)
-- Remain invisible to external screen capture and recording tools (OBS, Chrome, streaming software) at all times so viewers never see the overlay
-- Send full conversation history on every API call (the selected model has no memory — we pass it manually)
-- Show token usage in status bar after each response
-- Loading indicator (dot color changes) while waiting for API response
-- Disable send button while AI is thinking
+### Must have (implemented)
 
-### Should Have
-- Opacity slider in the header bar
-- Quick action buttons: Capture / Clear / Export
-- Timestamp on every message
-- Code blocks in AI responses rendered with different background color
-- Screenshot compression before sending (resize to max 1280px width, JPEG quality 82) to save tokens and speed up response
-- Status bar at bottom showing current state (ready / thinking / error / token count)
-- Export saves to `exports/` folder with timestamp filename
+- Always on top, adjustable opacity (`-alpha`)
+- **Invisible to screen capture** (Windows 10 2004+ / Windows 11)
+- Draggable header; scrollable chat; text input + Send / Enter
+- Global hotkeys (see table below) via `keyboard`
+- Capture flow: hide → delay → screenshot → show → send
+- Full session history on every API call (see `memory.md`)
+- Token totals in status bar (Gemini may show 0)
+- Disable send while waiting; errors in chat panel only
+- Lazy API key handling — app starts without key
 
-### Nice to Have
-- System tray icon (requires `pystray`)
-- Region selection capture (user drags to select part of screen)
-- Auto-trim conversation history if it gets too long (keep first 2 + last 18 messages)
-- Load system prompt from `prompts/system_prompt.md` file at startup
+### Should have (implemented)
+
+- Quick buttons: Capture / Clear / Export / Settings
+- Timestamps; code-block styling in AI replies
+- JPEG screenshot compression (configurable max width / quality)
+- Model selector in header
+- Settings: toggle response sections (MCQ, C++, SQL, DSA); edit system prompt in-app
+- Export to `%APPDATA%\<appdata_folder>\exports\`
+
+### Nice to have (partial / not implemented)
+
+- Opacity slider (label placeholder `[opacity]` only)
+- System tray (`pystray`) — not built
+- Region-select capture — not built
+- Auto-save chat between sessions — not built (export only)
 
 ---
 
 ## Window Layout
 
-Build the UI in exactly this order top to bottom:
-
 ```
 ┌──────────────────────────────────────────────┐
-│  ● AI OVERLAY              [opacity slider]  │  ← header frame (draggable)
+│  ● AI OVERLAY          [opacity]  [model ▼] │  ← header (draggable)
 ├──────────────────────────────────────────────┤
-│                                              │
-│  12:01  ▶ you                                │
-│  [Screenshot] what is this error?            │
-│                                              │
-│  12:01  ◆ ai                                 │
-│  The error on line 42 is a TypeError...      │
-│                                              │
-│  ┌──────────────────────────────────────┐    │
-│  │  result = items[index]               │    │  ← code block (yellow bg)
-│  └──────────────────────────────────────┘    │
-│                                              │
+│  chat history (scrollable)                   │
 ├──────────────────────────────────────────────┤
-│  [type a question...              ]  [ ⏎ ]  │  ← input bar
-│  [📷 Capture]  [🗑 Clear]  [💾 Export]      │  ← quick buttons
+│  [type a question...              ]  [ ⏎ ]  │
+│  [📷 Capture] [🗑 Clear] [💾 Export] [⚙]   │
 ├──────────────────────────────────────────────┤
-│  ready · 320 in / 85 out tokens              │  ← status bar
+│  ready · N in / M out tokens                 │
 └──────────────────────────────────────────────┘
 ```
+
+Window title string comes from `app_config.ini` → `window_title` (default `AI OVERLAY`).
 
 ---
 
@@ -122,10 +112,10 @@ bg_main:      #0a0a0f
 bg_header:    #0f0f1a
 bg_input:     #13131f
 bg_chat:      #0a0a0f
-accent_green: #00ff88   ← used for "you" label, dot, send button
-accent_blue:  #7dd3fc   ← used for "ai" label and AI response text
+accent_green: #00ff88
+accent_blue:  #7dd3fc
 text_normal:  #d4d4d8
-text_dim:     #52525b   ← timestamps, status bar, system messages
+text_dim:     #52525b
 error_red:    #f87171
 code_bg:      #111118
 code_fg:      #fbbf24
@@ -134,66 +124,70 @@ border:       #1e1e2e
 
 ---
 
-## Message Display Rules
-
-- Every message has a timestamp like `12:04` in `text_dim` color
-- User messages: label `▶ you` in `accent_green`, message text in `text_normal`
-- AI messages: label `◆ ai` in `accent_blue`, message text in `accent_blue`
-- System/info messages: no label, full line in `text_dim`
-- Error messages: prefix `⚠` in `error_red`
-- Code blocks in AI text (between ``` and ```) rendered with `code_bg` background and `code_fg` text
-
----
-
 ## Hotkey Summary
 
 | Hotkey | Action |
 |--------|--------|
-| Ctrl+Shift+Space | Toggle window visible/hidden |
-| Ctrl+Shift+S | Capture screen + send to AI |
-| Ctrl+Shift+C | Clear all conversation memory |
-| Ctrl+Shift+I | Focus the text input box |
-| Ctrl+Shift+E | Export chat to markdown file |
+| Ctrl+Shift+Space | Toggle overlay visible / hidden |
+| Ctrl+Shift+S | Capture screen and send to AI |
+| Ctrl+Shift+C | Clear conversation memory |
+| Ctrl+Shift+I | Focus text input |
+| Ctrl+Shift+E | Export chat to Markdown |
 
-All hotkeys must be **global** — they must work even when the overlay window is hidden or another app is in focus.
+All hotkeys are **global** (work when overlay is hidden or another app has focus).
+
+Configurable in `config.ini` `[HOTKEYS]`. After install, user may need to **restart the app** if Windows env vars or config changed.
 
 ---
 
-## File Structure To Create
+## File Structure
 
 ```
 ai-overlay-agent/
-├── ai_overlay.py          ← main application (single file)
-├── config.ini             ← user configuration
-├── .env                   ← API key (user creates this)
-├── requirements.txt       ← pip dependencies
+├── ai_overlay.py
+├── app_config.ini
+├── config.ini
+├── .env / .env.example
+├── requirements.txt
 ├── prompts/
-│   ├── PRD.md             ← this file
-│   ├── memory.md          ← session memory design
-│   ├── system_prompt.md   ← AI system prompt
-│   └── exploitation.md    ← technical capabilities reference
-└── exports/               ← auto-created folder for exported chats
+│   ├── PRD.md
+│   ├── memory.md
+│   ├── system_prompt.md
+│   ├── AGENT_INSTRUCTIONS.md
+│   └── exploitation.md
+├── build/                   # PyInstaller + helper scripts
+├── installer/               # Inno Setup
+├── dist/                    # Built .exe (gitignored)
+├── release/                 # Built installer (gitignored)
+├── install.bat, run.bat, uninstall.bat
+└── README.md, PRIVACY.md, installOnSystem.md, ...
 ```
+
+User-writable data (not in Program Files):
+
+- `%APPDATA%\<appdata_folder>\config.ini` (optional override)
+- `%APPDATA%\<appdata_folder>\.env`
+- `%APPDATA%\<appdata_folder>\exports\`
 
 ---
 
-## Dependencies (requirements.txt content)
+## Dependencies (`requirements.txt`)
 
 ```
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-anthropic>=0.1.0
+langchain-community>=0.1.0
 anthropic>=0.25.0
 openai>=1.0.0
-google-genai>=0.8.0
+google-generativeai>=0.8.0
 pillow>=10.0.0
 keyboard>=0.13.5
 python-dotenv>=1.0.0
 ```
 
-### Local Python setup
-
-Use a virtual environment for all development and runtime work:
-1. `python -m venv .venv`
-2. Activate the venv with `.venv\Scripts\activate`
-3. Run `pip install -r requirements.txt` inside the venv
+Development: `python -m venv .venv` → activate → `pip install -r requirements.txt`  
+Release exe: `build\build_exe.bat` (uses `.venv_build`).
 
 ---
 
@@ -201,15 +195,15 @@ Use a virtual environment for all development and runtime work:
 
 ```ini
 [API]
-provider = anthropic
-model = claude-opus-4-5
+provider = gemini
+model = gemini-3-pro
 max_tokens = 1500
 
 [API_OPENAI]
-model = gpt-5.4
+model = gpt-4o
 
 [API_GEMINI]
-model = gemini-2.5-pro
+model = gemini-3-pro
 
 [HOTKEYS]
 toggle = ctrl+shift+space
@@ -233,33 +227,29 @@ hide_delay_ms = 250
 
 ---
 
-## .env Format (user must create this)
+## API Keys
 
-```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-OPENAI_API_KEY=sk-your-openai-key-here
-GEMINI_API_KEY=your-gemini-key-here
-```
+Set **one or more** of:
 
----
+- `ANTHROPIC_API_KEY`
+- `OPENAI_API_KEY`
+- `GEMINI_API_KEY`
 
-## Use Case: Educational Content Creation
-
-This app is designed for content creators, educators, and YouTubers who want to:
-- Record tutorial and coding videos without showing the helper overlay to viewers
-- Share their screen during live streams while keeping the AI assistant invisible to the audience
-- Teach programming concepts with the overlay providing real-time AI help, unseen by students
-- Present code reviews or debugging sessions cleanly, with the overlay hidden from recording
-
-The invisibility to recording software is a core feature, not an edge case.
+Via **Windows Environment Variables** (recommended for installs) and/or `.env` (see `memory.md` load order).
 
 ---
 
-## Non-Goals (Do NOT Build These)
+## Use Case: Educational / Streaming
 
-- No web server, no Flask, no browser UI
-- No macOS or Linux support
-- No real-time continuous screen monitoring (only on-demand capture)
-- No keylogging or mouse tracking beyond what hotkeys require
-- No bypassing DRM or screen recording detection
-- No auto-clicking or automating other applications
+Creators record or share the screen while using the overlay privately. Capture exclusion targets full-screen / display capture on Windows 10 2004+.
+
+---
+
+## Non-Goals
+
+- No web server or browser UI
+- No macOS / Linux support in current codebase
+- No continuous screen monitoring (on-demand only)
+- No keylogging beyond global hotkey registration
+- No automating clicks or typing in other apps
+- No bypassing DRM content protection
