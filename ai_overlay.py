@@ -13,8 +13,8 @@ import sys
 import base64
 import io
 import ctypes
-import keyboard
 import configparser
+import keyboard
 from datetime import datetime
 from pathlib import Path
 from PIL import ImageGrab, Image
@@ -926,7 +926,9 @@ class OverlayApp:
         self.window_hwnd = None  # Will store window handle for invisibility reapplication
         self.window_opacity = 0.94
         self.window_invisible = False  # Track if invisibility was successfully applied
-        
+        self._hotkeys_registered = False
+        self._hotkey_removers = []
+
         # Section customization
         self.sections_enabled = {
             "mcq": True,
@@ -941,8 +943,9 @@ class OverlayApp:
         if not self.provider.is_ready():
             self.status_label.config(text="ready · set API key in environment")
 
-        # Register hotkeys
-        self.register_hotkeys()
+        # Register hotkeys after the Win32 window exists
+        self.root.after(200, self.register_hotkeys)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
         # Re-apply capture exclusion after the window is fully realized in mainloop
         self.setup_invisibility_maintenance()
@@ -1628,24 +1631,71 @@ class OverlayApp:
 
         prompt_window.show()
     
+    def _schedule_on_main_thread(self, callback):
+        """Run a hotkey handler on the Tk main thread (required for UI updates)."""
+        try:
+            self.root.after(0, callback)
+        except tk.TclError:
+            pass
+
+    def _on_window_close(self):
+        for remover in self._hotkey_removers:
+            try:
+                remover()
+            except Exception:
+                pass
+        self._hotkey_removers.clear()
+        self.root.destroy()
+
+    def _warmup_keyboard_listener(self):
+        """Initialize the keyboard hook thread (needed for some PyInstaller builds)."""
+        try:
+            keyboard.start_recording()
+            keyboard.stop_recording()
+        except Exception:
+            pass
+
     def register_hotkeys(self):
-        """Register global hotkeys."""
+        """Register global hotkeys via the keyboard library."""
+        if self._hotkeys_registered:
+            return
+
         toggle_key = get_config_value(self.config, "HOTKEYS", "toggle", "ctrl+shift+space")
         capture_key = get_config_value(self.config, "HOTKEYS", "capture", "ctrl+shift+s")
         clear_key = get_config_value(self.config, "HOTKEYS", "clear", "ctrl+shift+c")
         focus_key = get_config_value(self.config, "HOTKEYS", "focus", "ctrl+shift+i")
         export_key = get_config_value(self.config, "HOTKEYS", "export", "ctrl+shift+e")
-        
-        try:
-            keyboard.add_hotkey(toggle_key, self.hotkey_toggle, suppress=False)
-            keyboard.add_hotkey(capture_key, self.hotkey_capture, suppress=False)
-            keyboard.add_hotkey(clear_key, self.hotkey_clear, suppress=False)
-            keyboard.add_hotkey(focus_key, self.hotkey_focus, suppress=False)
-            keyboard.add_hotkey(export_key, self.hotkey_export, suppress=False)
-            
-            print(f"Hotkeys registered: {toggle_key}, {capture_key}, {clear_key}, {focus_key}, {export_key}")
-        except Exception as e:
-            print(f"Warning: Could not register some hotkeys: {e}")
+
+        bindings = [
+            (toggle_key, self.hotkey_toggle),
+            (capture_key, self.hotkey_capture),
+            (clear_key, self.hotkey_clear),
+            (focus_key, self.hotkey_focus),
+            (export_key, self.hotkey_export),
+        ]
+
+        self._warmup_keyboard_listener()
+
+        failed = []
+        for combo, handler in bindings:
+            try:
+                remover = keyboard.add_hotkey(
+                    combo,
+                    lambda h=handler: self._schedule_on_main_thread(h),
+                    suppress=False,
+                )
+                self._hotkey_removers.append(remover)
+            except Exception:
+                failed.append(combo)
+
+        if failed:
+            self.add_system_message(
+                "⚠ Could not register hotkeys (in use or blocked): " + ", ".join(failed)
+            )
+        elif self._hotkey_removers:
+            self._hotkeys_registered = True
+        else:
+            self.status_label.config(text="ready · hotkeys unavailable")
 
 
 # ============================================================================
