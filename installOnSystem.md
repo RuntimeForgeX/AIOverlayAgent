@@ -2,6 +2,12 @@
 
 Complete guide to install and run **AI Overlay Agent** as a desktop app on your system — with Desktop shortcut, Start Menu entry, and optional startup on boot.
 
+## Recommended (easiest) install
+
+If you received an installer (`PersonalAiAgentSurya Setup.exe`), just run it and follow the wizard. This is the normal software-style installation and does **not** require running `.bat` files.
+
+The steps below are the **manual / source-based** installation method.
+
 ---
 
 ## What you get after install

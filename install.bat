@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title AI Overlay Agent - Install
+title App - Install
 
 cd /d "%~dp0"
 set "APP_DIR=%~dp0"
@@ -8,13 +8,49 @@ set "APP_DIR=%APP_DIR:~0,-1%"
 set "PYTHON="
 set "PIP="
 
+REM --- Read app branding from app_config.ini (single source of truth) ---
+set "APP_NAME=PersonalAiAgentSurya"
+set "EXE_BASE_NAME=PersonalAiAgentSurya"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command ^
+    "$ini = Join-Path '%APP_DIR%' 'app_config.ini';" ^
+    "if (Test-Path $ini) {" ^
+    "  $txt = Get-Content -Raw -Encoding UTF8 $ini;" ^
+    "  $m = [regex]::Match($txt, '(?im)^\s*name\s*=\s*(.+)\s*$');" ^
+    "  if ($m.Success) { $m.Groups[1].Value.Trim() }" ^
+    "}"
+`) do set "APP_NAME=%%i"
+
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command ^
+    "$ini = Join-Path '%APP_DIR%' 'app_config.ini';" ^
+    "if (Test-Path $ini) {" ^
+    "  $txt = Get-Content -Raw -Encoding UTF8 $ini;" ^
+    "  $m = [regex]::Match($txt, '(?im)^\s*exe_base_name\s*=\s*(.+)\s*$');" ^
+    "  if ($m.Success) { $m.Groups[1].Value.Trim() }" ^
+    "}"
+`) do set "EXE_BASE_NAME=%%i"
+
+set "EXE_NAME=%EXE_BASE_NAME%.exe"
+set "PACKAGED_EXE="
+if exist "%APP_DIR%\%EXE_NAME%" set "PACKAGED_EXE=%APP_DIR%\%EXE_NAME%"
+if exist "%APP_DIR%\dist\%EXE_NAME%" set "PACKAGED_EXE=%APP_DIR%\dist\%EXE_NAME%"
+
+title %APP_NAME% - Install
+
 echo.
 echo ========================================
-echo   AI Overlay Agent - Windows Install
+echo   %APP_NAME% - Windows Install
 echo ========================================
 echo.
 echo Install folder: %APP_DIR%
 echo.
+
+REM If a packaged exe exists, we can install shortcuts without Python.
+if defined PACKAGED_EXE (
+    echo [OK] Found packaged executable:
+    echo       %PACKAGED_EXE%
+    echo.
+    goto :install_shortcuts_exe
+)
 
 REM --- Find Python (venv first, then system) ---
 if exist ".venv\Scripts\python.exe" (
@@ -84,6 +120,7 @@ echo      ^(check "Add python.exe to PATH" during install^)
 echo   2. Or if .venv was deleted, restore this folder from backup
 echo.
 pause
+exit /b 0
 exit /b 1
 
 :found_python
@@ -141,25 +178,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$debugBat = Join-Path $appDir 'run_debug.bat';" ^
   "$shell = New-Object -ComObject WScript.Shell;" ^
   "$desktop = [Environment]::GetFolderPath('Desktop');" ^
-  "$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'AI Overlay Agent';" ^
+    "$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) '%APP_NAME%';" ^
   "New-Item -ItemType Directory -Force -Path $startMenu | Out-Null;" ^
-  "$s1 = $shell.CreateShortcut((Join-Path $desktop 'AI Overlay Agent.lnk'));" ^
-  "$s1.TargetPath = $pythonw; $s1.Arguments = '\"' + $script + '\"'; $s1.WorkingDirectory = $appDir; $s1.Description = 'AI Overlay Agent'; $s1.Save();" ^
-  "$s2 = $shell.CreateShortcut((Join-Path $startMenu 'AI Overlay Agent.lnk'));" ^
-  "$s2.TargetPath = $pythonw; $s2.Arguments = '\"' + $script + '\"'; $s2.WorkingDirectory = $appDir; $s2.Description = 'AI Overlay Agent'; $s2.Save();" ^
-  "$s3 = $shell.CreateShortcut((Join-Path $startMenu 'AI Overlay Agent (Debug).lnk'));" ^
-  "$s3.TargetPath = $debugBat; $s3.WorkingDirectory = $appDir; $s3.Description = 'AI Overlay Agent with console logs'; $s3.Save();"
+    "$s1 = $shell.CreateShortcut((Join-Path $desktop ('%APP_NAME%' + '.lnk')));" ^
+    "$s1.TargetPath = $pythonw; $s1.Arguments = '\"' + $script + '\"'; $s1.WorkingDirectory = $appDir; $s1.Description = '%APP_NAME%'; $s1.Save();" ^
+    "$s2 = $shell.CreateShortcut((Join-Path $startMenu ('%APP_NAME%' + '.lnk')));" ^
+    "$s2.TargetPath = $pythonw; $s2.Arguments = '\"' + $script + '\"'; $s2.WorkingDirectory = $appDir; $s2.Description = '%APP_NAME%'; $s2.Save();" ^
+    "if (Test-Path $debugBat) {" ^
+    "  $s3 = $shell.CreateShortcut((Join-Path $startMenu ('%APP_NAME% (Debug).lnk')));" ^
+    "  $s3.TargetPath = $debugBat; $s3.WorkingDirectory = $appDir; $s3.Description = '%APP_NAME% with console logs'; $s3.Save();" ^
+    "}"
 
 if errorlevel 1 (
     echo [WARN] Could not create shortcuts. You can still run run.bat manually.
 ) else (
-    echo [OK] Desktop shortcut created: AI Overlay Agent
-    echo [OK] Start Menu folder created: AI Overlay Agent
+    echo [OK] Desktop shortcut created: %APP_NAME%
+    echo [OK] Start Menu folder created: %APP_NAME%
 )
 echo.
 
 REM --- Optional: start with Windows ---
-set /p STARTUP="Start AI Overlay Agent when Windows starts? (Y/N): "
+set /p STARTUP="Start %APP_NAME% when Windows starts? (Y/N): "
 if /i "%STARTUP%"=="Y" (
     powershell -NoProfile -ExecutionPolicy Bypass -Command ^
       "$appDir = '%APP_DIR%';" ^
@@ -167,7 +206,7 @@ if /i "%STARTUP%"=="Y" (
       "$script = Join-Path $appDir 'ai_overlay.py';" ^
       "$startup = [Environment]::GetFolderPath('Startup');" ^
       "$shell = New-Object -ComObject WScript.Shell;" ^
-      "$s = $shell.CreateShortcut((Join-Path $startup 'AI Overlay Agent.lnk'));" ^
+            "$s = $shell.CreateShortcut((Join-Path $startup ('%APP_NAME%' + '.lnk')));" ^
       "$s.TargetPath = $pythonw; $s.Arguments = '\"' + $script + '\"'; $s.WorkingDirectory = $appDir; $s.Save();"
     echo [OK] Added to Windows Startup.
 ) else (
@@ -181,9 +220,57 @@ echo ========================================
 echo.
 echo Next steps:
 echo   1. Edit .env and add your API key
-echo   2. Double-click "AI Overlay Agent" on Desktop
+echo   2. Double-click "%APP_NAME%" on Desktop
 echo   3. Use Ctrl+Shift+Space to show/hide the overlay
 echo.
 echo Optional: edit config.ini for model, hotkeys, window size.
+echo.
+pause
+exit /b 0
+
+
+:install_shortcuts_exe
+echo Creating shortcuts (EXE mode)...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$appDir = '%APP_DIR%';" ^
+    "$exe = '%PACKAGED_EXE%';" ^
+    "$shell = New-Object -ComObject WScript.Shell;" ^
+    "$desktop = [Environment]::GetFolderPath('Desktop');" ^
+    "$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) '%APP_NAME%';" ^
+    "New-Item -ItemType Directory -Force -Path $startMenu | Out-Null;" ^
+    "$s1 = $shell.CreateShortcut((Join-Path $desktop ('%APP_NAME%' + '.lnk')));" ^
+    "$s1.TargetPath = $exe; $s1.WorkingDirectory = (Split-Path $exe -Parent); $s1.Description = '%APP_NAME%'; $s1.Save();" ^
+    "$s2 = $shell.CreateShortcut((Join-Path $startMenu ('%APP_NAME%' + '.lnk')));" ^
+    "$s2.TargetPath = $exe; $s2.WorkingDirectory = (Split-Path $exe -Parent); $s2.Description = '%APP_NAME%'; $s2.Save();"
+
+if errorlevel 1 (
+        echo [WARN] Could not create shortcuts.
+) else (
+        echo [OK] Desktop shortcut created: %APP_NAME%
+        echo [OK] Start Menu folder created: %APP_NAME%
+)
+
+set /p STARTUP="Start %APP_NAME% when Windows starts? (Y/N): "
+if /i "%STARTUP%"=="Y" (
+        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+            "$appDir = '%APP_DIR%';" ^
+            "$exe = '%PACKAGED_EXE%';" ^
+            "$startup = [Environment]::GetFolderPath('Startup');" ^
+            "$shell = New-Object -ComObject WScript.Shell;" ^
+            "$s = $shell.CreateShortcut((Join-Path $startup ('%APP_NAME%' + '.lnk')));" ^
+            "$s.TargetPath = $exe; $s.WorkingDirectory = (Split-Path $exe -Parent); $s.Save();"
+        echo [OK] Added to Windows Startup.
+) else (
+        echo Skipped startup entry.
+)
+
+echo.
+echo ========================================
+echo   Installation complete (EXE mode)
+echo ========================================
+echo.
+echo Next steps:
+echo   1. Copy .env.example to .env (optional) and add your API key
+echo   2. Double-click "%APP_NAME%" on Desktop
 echo.
 pause

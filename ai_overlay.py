@@ -9,6 +9,7 @@ from tkinter import scrolledtext, messagebox, filedialog
 import threading
 import time
 import os
+import sys
 import base64
 import io
 import ctypes
@@ -62,13 +63,106 @@ COLORS = {
 # CONFIGURATION
 # ============================================================================
 
+def is_frozen_app():
+    """True when running from a packaged executable (PyInstaller, etc.)."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def get_resource_root():
+    """Base folder for bundled, read-only resources."""
+    if is_frozen_app() and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)  # PyInstaller onefile temp extract
+    return Path(__file__).parent
+
+
+def load_app_config():
+    """Load app metadata from app_config.ini (bundled or alongside exe)."""
+    defaults = {
+        "name": "PersonalAiAgentSurya",
+        "appdata_folder": "PersonalAiAgentSurya",
+        "window_title": "AI OVERLAY",
+    }
+
+    cp = configparser.ConfigParser()
+
+    candidates = [
+        get_resource_root() / "app_config.ini",
+    ]
+    if is_frozen_app():
+        try:
+            candidates.append(Path(sys.executable).parent / "app_config.ini")
+        except Exception:
+            pass
+    candidates.append(Path(__file__).parent / "app_config.ini")
+
+    for path in candidates:
+        try:
+            if path.exists():
+                cp.read(path, encoding="utf-8")
+                break
+        except Exception:
+            continue
+
+    return {
+        "name": cp.get("APP", "name", fallback=defaults["name"]).strip(),
+        "appdata_folder": cp.get(
+            "APP", "appdata_folder", fallback=defaults["appdata_folder"]
+        ).strip(),
+        "window_title": cp.get(
+            "APP", "window_title", fallback=defaults["window_title"]
+        ).strip(),
+    }
+
+
+APP_META = load_app_config()
+APP_NAME = APP_META.get("name") or "PersonalAiAgentSurya"
+APPDATA_FOLDER = APP_META.get("appdata_folder") or APP_NAME
+WINDOW_TITLE = APP_META.get("window_title") or "AI OVERLAY"
+
+
+def get_user_data_root(app_name=None):
+    """Per-user writable data folder (AppData\\Roaming)."""
+    base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+    return Path(base) / (app_name or APPDATA_FOLDER)
+
+
+def get_candidate_dotenv_files(app_name=None):
+    """Ordered list of .env locations to load (first ones win)."""
+    candidates = []
+    try:
+        candidates.append(get_user_data_root(app_name) / ".env")
+    except Exception:
+        pass
+    # Allow a portable .env next to the executable for power users
+    try:
+        if is_frozen_app():
+            candidates.append(Path(sys.executable).parent / ".env")
+    except Exception:
+        pass
+    # Dev mode: project root
+    candidates.append(Path(__file__).parent / ".env")
+    return candidates
+
 def load_config():
     """Load configuration from config.ini with fallbacks."""
     config = configparser.ConfigParser()
-    config_path = Path(__file__).parent / "config.ini"
-    
-    if config_path.exists():
-        config.read(config_path)
+
+    # Prefer per-user config so installs work under Program Files.
+    user_config = get_user_data_root() / "config.ini"
+    exe_side_config = None
+    if is_frozen_app():
+        try:
+            exe_side_config = Path(sys.executable).parent / "config.ini"
+        except Exception:
+            exe_side_config = None
+    bundled_config = get_resource_root() / "config.ini"
+
+    if user_config.exists():
+        config.read(user_config)
+    elif exe_side_config and exe_side_config.exists():
+        config.read(exe_side_config)
+    elif bundled_config.exists():
+        config.read(bundled_config)
     
     return config
 
@@ -121,13 +215,13 @@ You are called "Overlay AI".
 - Always respond in the same language the user writes in
 - Default to English if unclear"""
     
-    prompt_path = Path(__file__).parent / "prompts" / "system_prompt.md"
+    prompt_path = get_resource_root() / "prompts" / "system_prompt.md"
     
     if not prompt_path.exists():
         return default_prompt
     
     try:
-        content = prompt_path.read_text()
+        content = prompt_path.read_text(encoding="utf-8")
         # Extract content between first ``` and closing ```
         match = re.search(r'```\n(.*?)\n```', content, re.DOTALL)
         if match:
@@ -524,7 +618,13 @@ class APIProvider:
         self.config = config
         self.conversation_history = []
         self.system_prompt = load_system_prompt()
-        load_dotenv()
+        # Load environment variables from a predictable per-user location.
+        for dotenv_file in get_candidate_dotenv_files():
+            try:
+                if dotenv_file.exists():
+                    load_dotenv(dotenv_path=dotenv_file, override=False)
+            except Exception:
+                pass
         self.llm = None
         self._initialize_llm()
     
@@ -814,7 +914,7 @@ class OverlayApp:
         opacity = float(get_config_value(self.config, "UI", "opacity", "0.94"))
         
         self.root.geometry(f"{width}x{height}+{start_x}+{start_y}")
-        self.root.title("AI OVERLAY")
+        self.root.title(WINDOW_TITLE)
         self.root.configure(bg=COLORS["bg_main"])
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", opacity)
@@ -840,7 +940,7 @@ class OverlayApp:
         self.root.update()
 
         hide_window_from_taskbar(self.root)
-        success = apply_capture_exclusion(self.root, "AI OVERLAY", verbose=verbose)
+        success = apply_capture_exclusion(self.root, WINDOW_TITLE, verbose=verbose)
         self.window_invisible = success
 
         hwnd = get_tkinter_hwnd(self.root)
@@ -1251,9 +1351,9 @@ class OverlayApp:
             messagebox.showwarning("Export", "No conversation to export")
             return
         
-        # Create exports directory
-        exports_dir = Path(__file__).parent / "exports"
-        exports_dir.mkdir(exist_ok=True)
+        # Create exports directory in a writable per-user location
+        exports_dir = get_user_data_root() / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
         
         # Generate filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1282,7 +1382,7 @@ class OverlayApp:
                         content += "[screenshot]\n"
         
         # Write file
-        filename.write_text(content)
+        filename.write_text(content, encoding="utf-8")
         
         messagebox.showinfo("Export", f"Conversation exported to:\n{filename}")
     

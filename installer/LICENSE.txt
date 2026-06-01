@@ -1,0 +1,55 @@
+AI OVERLAY AGENT - SOFTWARE LICENSE
+
+TERMS OF USE:
+
+1. GRANT OF LICENSE
+This software is provided for personal and educational use. You may install 
+and run this application on your Windows 10+ system.
+
+2. RESTRICTIONS
+You may NOT:
+  - Redistribute the executable or source code without permission
+  - Use this for commercial purposes without prior authorization
+  - Reverse engineer or modify the core application
+  - Sell or lease the software
+
+3. API KEY COMPLIANCE
+Your API keys (OpenAI, Anthropic, Google Gemini) are stored locally on your machine.
+You are responsible for:
+  - Keeping your API keys private and secure
+  - Following each API provider's Terms of Service
+  - Monitoring your API usage and billing
+  - Not sharing your API keys with others
+
+4. PRIVACY
+This application:
+  - Does NOT transmit your screen content without your consent
+  - Processes screen analysis locally when possible
+  - Uses your chosen API provider for AI analysis
+  - Stores configuration and exports in your user AppData folder
+  - Does NOT collect usage statistics (unless enabled by you)
+
+5. DISCLAIMER
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY. THE AUTHOR IS NOT LIABLE 
+FOR ANY DAMAGE, DATA LOSS, OR OTHER ISSUES ARISING FROM USE OF THIS SOFTWARE.
+
+6. API PROVIDER TERMS
+By using this software with OpenAI, Anthropic, or Google Gemini, you agree 
+to comply with their respective Terms of Service and Privacy Policies.
+
+7. EDUCATIONAL USE
+This tool is designed for:
+  - Teaching and tutoring (invisible to students during recording)
+  - Content creation and streaming
+  - Personal research and learning
+  - Accessibility assistance
+
+8. TERMINATION
+This license is terminated immediately if you violate any of these terms.
+Upon termination, you must cease using the software and delete all copies.
+
+========================================
+
+By installing this software, you agree to these terms and conditions.
+
+For full documentation and support, see the included README.md file.

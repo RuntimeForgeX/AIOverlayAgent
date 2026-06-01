@@ -59,7 +59,7 @@ This document describes the complete AI Overlay Agent application that was just 
 - **prompts/AGENT_INSTRUCTIONS.md** - Build instructions
 
 ### Directories
-- **exports/** - Created for storing exported conversations
+- **exports/** - Legacy folder (current builds export to `%APPDATA%\\PersonalAiAgentSurya\\exports\\`)
 - **prompts/** - Copy of prompt documentation
 
 ## Key Features Implemented
@@ -99,7 +99,7 @@ This document describes the complete AI Overlay Agent application that was just 
 ✓ Private API key storage in .env
 
 ### Advanced Features
-✓ Conversation export to timestamped Markdown files
+✓ Conversation export to timestamped Markdown files (under `%APPDATA%\\PersonalAiAgentSurya\\exports\\`)
 ✓ Auto-trim history at 30+ messages (keeps first 2 + last 28)
 ✓ Background thread handling for API calls
 ✓ Thread-safe UI updates via root.after()

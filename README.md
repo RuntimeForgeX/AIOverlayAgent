@@ -20,6 +20,15 @@ The overlay uses **Windows API-level invisibility** making it impossible for any
 
 ## Install as a Windows App
 
+### Recommended distribution (no source code)
+
+If you want to distribute this like a normal Windows program (double-click a **Setup.exe** with a wizard UI), build the installer on your machine and share only the output installer.
+
+- Build instructions: see `RELEASE_BUILD.md`
+- End-user install: run `PersonalAiAgentSurya Setup.exe` and follow the wizard
+
+After installing, the app will read API keys from a `.env` file either next to the installed exe or from `%APPDATA%\PersonalAiAgentSurya\`. Exports are written under `%APPDATA%\PersonalAiAgentSurya\exports\`.
+
 **Full step-by-step guide:** [installOnSystem.md](installOnSystem.md)
 
 Use this to install the overlay like a normal desktop app (Desktop shortcut, Start Menu, optional startup).

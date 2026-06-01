@@ -1,0 +1,14 @@
+PersonalAiAgentSurya – Usage Guidelines
+
+This software is intended for education and productivity use.
+
+Do not use this software for:
+- Cheating on exams or violating academic integrity policies
+- Unauthorized access, surveillance, or data theft
+- Any illegal, harmful, or malicious activity
+
+Notes:
+- This app may call third‑party AI APIs and requires you to provide your own API key(s).
+- You are responsible for complying with the AI provider terms, local laws, and the policies of your school or workplace.
+
+By continuing installation, you agree to use this application responsibly.
