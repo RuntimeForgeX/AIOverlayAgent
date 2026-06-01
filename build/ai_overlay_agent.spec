@@ -55,6 +55,7 @@ for pkg in [
     "src.services.storage",
     "src.ui",
     "src.ui.app",
+    "src.ui.cursor",
     "src.ui.styles",
     "src.ui.styles.themes",
     "src.ui.markdown",

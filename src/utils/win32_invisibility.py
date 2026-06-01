@@ -2,6 +2,7 @@ import ctypes
 import os
 import tkinter as tk
 from src.ui.styles.themes import COLORS
+from src.ui.cursor import refresh_cursor_policy
 # ============================================================================
 # WIN32 API FOR INVISIBILITY
 # ============================================================================
@@ -237,6 +238,7 @@ class InvisibleTopLevel(tk.Toplevel):
         self.update_idletasks()
         self.update()
         self._apply_invisibility()
+        refresh_cursor_policy(self)
 
     def _on_map(self, event=None):
         """Re-apply privacy flags whenever the window is shown."""
@@ -314,7 +316,6 @@ class InvisibleModelDropdown(tk.Frame):
                 anchor="w",
                 padx=10,
                 pady=4,
-                cursor="hand2",
             )
             row.pack(fill=tk.X)
 
@@ -341,6 +342,7 @@ class InvisibleModelDropdown(tk.Frame):
         height = len(self.values) * 26 + 4
         self._popup.geometry(f"{width}x{height}+{bx}+{by}")
         self._popup.show()
+        refresh_cursor_policy(self._popup)
 
         def dismiss_if_outside(event):
             if not self._popup or not self._popup.winfo_exists():

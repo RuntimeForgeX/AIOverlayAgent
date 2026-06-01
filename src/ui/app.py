@@ -35,6 +35,7 @@ from src.utils.win32_invisibility import (
 )
 from src.services.llm_provider import get_provider, HumanMessage, AIMessage
 from src.ui.markdown.renderer import configure_markdown_tags, render_markdown
+from src.ui.cursor import refresh_cursor_policy
 # ============================================================================
 # MAIN APPLICATION
 # ============================================================================
@@ -140,6 +141,7 @@ class OverlayApp:
 
         self.setup_drag()
         self.build_ui()
+        refresh_cursor_policy(self.root)
         self.apply_main_window_invisibility()
 
     def apply_main_window_invisibility(self, verbose=True):
@@ -245,7 +247,6 @@ class OverlayApp:
             activeforeground=COLORS["accent_green"],
             highlightthickness=0,
             bd=0,
-            cursor="hand2",
         )
         self.model_dropdown.pack(side=tk.RIGHT, padx=5, pady=8)
         
@@ -262,7 +263,7 @@ class OverlayApp:
         self.theme_btn = tk.Label(
             self.header_frame, text=theme_icon,
             fg=COLORS["text_dim"], bg=COLORS["bg_header"],
-            font=("Courier New", 10), cursor="hand2",
+            font=("Courier New", 10),
         )
         self.theme_btn.pack(side=tk.RIGHT, padx=5, pady=8)
         self.theme_btn.bind("<Button-1>", lambda e: self._cycle_theme())
@@ -471,6 +472,7 @@ class OverlayApp:
             ).pack(pady=5)
 
             preview.show()
+            refresh_cursor_policy(preview)
         except Exception:
             self.add_system_message("[WARN] Could not preview screenshot")
 
@@ -482,6 +484,7 @@ class OverlayApp:
             activebackground=COLORS["accent_green"],
             activeforeground=COLORS["bg_main"],
             font=("Courier New", 8),
+            cursor="arrow",
         )
         menu.add_command(label="Preview", command=lambda: self._preview_screenshot(idx))
         if idx > 0:
@@ -520,7 +523,6 @@ class OverlayApp:
             remove_lbl = tk.Label(
                 container, text="×", fg=COLORS["remove_btn_fg"],
                 bg=COLORS["thumb_bg"], font=("Courier New", 9, "bold"),
-                cursor="hand2",
             )
             remove_lbl.pack(side=tk.LEFT, padx=(0, 3))
             remove_lbl.bind("<Button-1>", lambda e, idx=i: self._remove_screenshot(idx))
@@ -536,6 +538,8 @@ class OverlayApp:
                                         before=self.input_frame)
         else:
             self.thumb_strip_frame.pack_forget()
+
+        refresh_cursor_policy(self.thumb_strip_frame)
 
     # ------------------------------------------------------------------
     # Persistence helpers
@@ -642,6 +646,7 @@ class OverlayApp:
 
         # Rebuild thumbnails with new colors
         self._rebuild_thumbnail_strip()
+        refresh_cursor_policy(self.root)
 
     # ------------------------------------------------------------------
     # Chat display
@@ -1040,6 +1045,7 @@ class OverlayApp:
         ).pack(pady=10, padx=15, fill=tk.X)
 
         settings_window.show()
+        refresh_cursor_policy(settings_window)
     
     def edit_system_prompt(self):
         """Edit the system prompt."""
@@ -1092,6 +1098,7 @@ class OverlayApp:
         ).pack(pady=10, padx=10, fill=tk.X)
 
         prompt_window.show()
+        refresh_cursor_policy(prompt_window)
     
     def _schedule_on_main_thread(self, callback):
         """Run a hotkey handler on the Tk main thread (required for UI updates)."""

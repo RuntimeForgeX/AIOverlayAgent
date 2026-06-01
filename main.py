@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from src.config.settings import load_config, load_environment
 from src.ui.app import OverlayApp
+from src.ui.cursor import apply_global_cursor_defaults, refresh_cursor_policy
 from src.utils.error_handler import install_in_app_error_handlers
 
 def main():
@@ -15,7 +16,10 @@ def main():
     config = load_config()
 
     root = tk.Tk()
+    apply_global_cursor_defaults(root)
+    root.configure(cursor="arrow")
     app = OverlayApp(root, config)
+    refresh_cursor_policy(root)
     
     install_in_app_error_handlers(app)
     
