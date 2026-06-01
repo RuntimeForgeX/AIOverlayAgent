@@ -58,7 +58,7 @@ datas = [
 ]
 
 a = Analysis(
-    [os.path.join(_PROJECT_ROOT, "ai_overlay.py")],
+    [os.path.join(_PROJECT_ROOT, "main.py")],
     pathex=[_PROJECT_ROOT],
     binaries=[],
     datas=datas,
