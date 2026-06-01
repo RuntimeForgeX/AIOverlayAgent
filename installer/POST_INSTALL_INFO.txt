@@ -8,19 +8,21 @@ NEXT STEPS:
 
 1. ADD YOUR API KEY
    - A shortcut "Setup API Key" has been created in your Start Menu
-   - Open the .env.example file and replace the placeholder with your API key
+   - Go environment variables of your windows laptop
+   - And add one of your that API key you have
+   - ANTHROPIC_API_KEY or OPENAI_API_KEY or GEMINI_API_KEY
    - Supported APIs: Anthropic Claude, OpenAI, or Google Gemini
-   - Copy the file as .env in the same directory
 
 2. LAUNCH THE APPLICATION
    - Click the desktop shortcut, OR
    - Run from Start Menu > PersonalAiAgentSurya
 
-3. CONFIGURATION
-   - Edit config.ini to customize settings:
-     * Default overlay position
-     * Hotkey settings
-     * Display options
+3. Short Keys 
+Ctrl+Shift+Space - Show / hide app
+Ctrl+Shift+S - Capture screen and send to AI
+Ctrl+Shift+C - Clear conversation
+Ctrl+Shift+I - Focus text input
+Ctrl+Shift+E - Export chat to Markdown
 
 FEATURES:
   ✓ Real-time AI assistance for screen analysis
@@ -28,16 +30,6 @@ FEATURES:
   ✓ Perfect for teaching and content creation
   ✓ Secure - runs locally on your machine
   ✓ Multiple API provider support
-
-DOCUMENTATION:
-  - README.md: Full user guide and troubleshooting
-  - PRIVACY.md: Privacy and security information
-  - config.ini: Configuration reference
-
-SUPPORT:
-  - Check README.md for common issues
-  - Ensure Python 3.10+ is installed (may already be bundled)
-  - Verify your API key is correct in .env file
 
 SHORTCUTS CREATED:
   ✓ Desktop icon (for quick launch)
@@ -49,4 +41,4 @@ TO UNINSTALL:
 
 For more information and documentation, visit the Start Menu shortcuts.
 
-Enjoy using AI Overlay Agent!
+Enjoy using PersonalAiAgentSurya !
