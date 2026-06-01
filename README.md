@@ -2,7 +2,7 @@
 
 A **Windows desktop AI overlay** that floats on top of your screen, answers questions about what you see (including screenshots), and stays **hidden from screen recording** tools such as OBS, Google Meet, and Zoom when you share your full display.
 
-Built with Python, tkinter, and configurable AI providers (Anthropic, OpenAI, Google Gemini).
+Built with Python, tkinter, and configurable AI providers via **[OpenRouter](https://openrouter.ai/)** (recommended) or direct Anthropic / OpenAI / Gemini APIs.
 
 ---
 
@@ -12,7 +12,7 @@ Built with Python, tkinter, and configurable AI providers (Anthropic, OpenAI, Go
 - **Global hotkeys** work even when the overlay is hidden
 - **Screen capture** sent to the AI (JPEG-compressed, multimodal)
 - **Capture exclusion** — overlay not shown in typical full-screen recordings (Windows 10 2004+)
-- Switch models from the header dropdown (Claude, GPT, Gemini)
+- Switch models from the header dropdown (OpenRouter: Gemini 3.1 Pro, Claude, GPT, DeepSeek, and more)
 - Screenshot queue (up to 10 thumbnails) before sending
 - Chat history and screenshot queue persist in `%APPDATA%`
 - Export conversation to Markdown
@@ -25,9 +25,8 @@ Built with Python, tkinter, and configurable AI providers (Anthropic, OpenAI, Go
 - **Windows 10** (build 19041 / 2004+) or **Windows 11**
 - **Python 3.10+** (for development; the installer ships a standalone `.exe`)
 - An API key for at least one provider:
-  - [Anthropic](https://console.anthropic.com/) — `ANTHROPIC_API_KEY`
-  - [OpenAI](https://platform.openai.com/) — `OPENAI_API_KEY`
-  - [Google Gemini](https://aistudio.google.com/apikey) — `GEMINI_API_KEY`
+  - [OpenRouter](https://openrouter.ai/keys) — `OPENROUTER_API_KEY` (one key for many models)
+  - Or direct: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (for “direct” dropdown entries)
 
 ---
 
@@ -47,7 +46,7 @@ pip install -r requirements.txt
 **Option A — Windows Environment Variables (recommended for installs)**
 
 1. Win + R → `sysdm.cpl` → **Advanced** → **Environment Variables**
-2. Add e.g. `GEMINI_API_KEY` with your key
+2. Add e.g. `OPENROUTER_API_KEY` with your key
 3. Restart the app after changing variables
 
 **Option B — `.env` file**
@@ -55,7 +54,7 @@ pip install -r requirements.txt
 Copy `.env.example` to `.env` in the project root and fill in your keys:
 
 ```env
-GEMINI_API_KEY=your-key-here
+OPENROUTER_API_KEY=your-key-here
 ```
 
 Windows environment variables always take priority over `.env`.

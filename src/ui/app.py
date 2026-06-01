@@ -48,6 +48,12 @@ from src.utils.win32_invisibility import (
     InvisibleModelDropdown,
     InvisibleTopLevel,
 )
+from src.config.models import (
+    model_labels,
+    build_model_map,
+    resolve_model_label,
+    apply_model_to_config,
+)
 from src.services.llm_provider import get_provider, HumanMessage, AIMessage
 from src.ui.markdown.renderer import configure_markdown_tags, render_markdown
 from src.ui.cursor import refresh_cursor_policy
@@ -247,19 +253,9 @@ class OverlayApp:
         )
         self.title_label.pack(side=tk.LEFT, padx=10, pady=8)
         
-        # Model selector dropdown
-        models = [
-            "Gemini 3 Pro",
-            "Gemini 2.5 Pro",
-            "GPT-5.4",
-            "GPT-4o",
-            "GPT-4o Mini",
-            "GPT-4 Turbo",
-            "Claude 3.5 Sonnet",
-            "Claude 4.5 Opus",
-            "Claude 4 Sonnet"
-        ]
-        self.model_var = tk.StringVar(value="Gemini 3 Pro")
+        # Model selector dropdown (OpenRouter + direct APIs)
+        models = model_labels()
+        self.model_var = tk.StringVar(value=resolve_model_label(self.config))
         self.model_dropdown = InvisibleModelDropdown(
             self.header_frame,
             self.model_var,
@@ -977,35 +973,22 @@ class OverlayApp:
 
     def change_model(self, model_name):
         """Change the AI model on the fly."""
-        model_map = {
-            "Gemini 3 Pro": ("gemini", "gemini-3-pro"),
-            "Gemini 2.5 Pro": ("gemini", "gemini-2.5-pro"),
-            "GPT-5.4": ("openai", "gpt-5.4"),
-            "GPT-4o": ("openai", "gpt-4o"),
-            "GPT-4o Mini": ("openai", "gpt-4o-mini"),
-            "GPT-4 Turbo": ("openai", "gpt-4-turbo"),
-            "Claude 3.5 Sonnet": ("anthropic", "claude-3-5-sonnet"),
-            "Claude 4.5 Opus": ("anthropic", "claude-opus-4-5"),
-            "Claude 4 Sonnet": ("anthropic", "claude-sonnet-4")
-        }
-        
+        model_map = build_model_map()
+
         if model_name not in model_map:
             self.add_system_message(f"[WARN] Unknown model: {model_name}")
             return
-        
+
         provider_name, model_id = model_map[model_name]
-        
+
         try:
             load_environment()
 
-            # Update config
-            self.config.set("API", "provider", provider_name)
-            if provider_name == "anthropic":
-                self.config.set("API", "model", model_id)
-            elif provider_name == "openai":
-                self.config.set("API_OPENAI", "model", model_id)
-            elif provider_name == "gemini":
-                self.config.set("API_GEMINI", "model", model_id)
+            try:
+                apply_model_to_config(self.config, provider_name, model_id)
+            except ValueError as exc:
+                self.add_system_message(f"[WARN] {exc}")
+                return
             
             # Reinitialize provider and restore selected prompt profile
             profile = get_prompt_by_id(self.selected_prompt_id)

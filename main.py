@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from src.config.settings import load_config, load_environment
+from src.config.models import normalize_config_model
 from src.ui.app import OverlayApp
 from src.ui.cursor import apply_global_cursor_defaults, refresh_cursor_policy
 from src.utils.error_handler import install_in_app_error_handlers
@@ -14,6 +15,7 @@ from src.utils.error_handler import install_in_app_error_handlers
 def main():
     load_environment()
     config = load_config()
+    normalize_config_model(config)
 
     root = tk.Tk()
     apply_global_cursor_defaults(root)

@@ -124,8 +124,9 @@ def api_key_env_name(provider_name):
         "anthropic": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
         "gemini": "GEMINI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }
-    return mapping.get((provider_name or "").lower(), "ANTHROPIC_API_KEY")
+    return mapping.get((provider_name or "").lower(), "OPENROUTER_API_KEY")
 
 def load_config():
     """Load configuration from config.ini with fallbacks."""
@@ -156,7 +157,7 @@ def get_config_value(config, section, key, default):
     try:
         if section == "HOTKEYS":
             return config.get(section, key, fallback=default)
-        elif section in ["API", "API_OPENAI", "API_GEMINI", "UI", "CAPTURE"]:
+        elif section in ["API", "API_OPENAI", "API_GEMINI", "API_OPENROUTER", "UI", "CAPTURE"]:
             return config.get(section, key, fallback=default)
     except:
         pass

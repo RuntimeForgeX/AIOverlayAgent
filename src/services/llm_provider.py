@@ -2,7 +2,14 @@ import io
 import base64
 from PIL import Image
 from src.prompts.registry import get_default_system_prompt
-from src.config.settings import get_config_value, api_key_env_name, get_api_key, load_environment
+from src.config.settings import (
+    get_config_value,
+    api_key_env_name,
+    get_api_key,
+    load_environment,
+    APP_NAME,
+)
+from src.config.models import OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL
 try:
     from langchain_openai import ChatOpenAI
     from langchain_anthropic import ChatAnthropic
@@ -119,11 +126,46 @@ class APIProvider:
                 )
 
 
-class AnthropicProvider(APIProvider):
+class _LangChainChatProvider(APIProvider):
+    """Shared LangChain chat invoke path (OpenAI-compatible APIs)."""
+
+    def send_message(self, message_content, on_response, on_error):
+        try:
+            if not self._ensure_llm():
+                on_error(self._missing_key_message())
+                return
+
+            self._add_user_content(message_content)
+            self.trim_history()
+
+            messages = [SystemMessage(content=self.system_prompt)] + self.conversation_history
+            response = self.llm.invoke(messages)
+            reply = response.content
+            if isinstance(reply, list):
+                reply = "".join(
+                    block.get("text", "") if isinstance(block, dict) else str(block)
+                    for block in reply
+                )
+            self.add_assistant_message(reply)
+
+            usage = response.response_metadata.get("usage", {}) or {}
+            tokens = {
+                "input": usage.get("input_tokens") or usage.get("prompt_tokens", 0),
+                "output": usage.get("output_tokens") or usage.get("completion_tokens", 0),
+            }
+            on_response(reply, tokens)
+        except Exception as e:
+            if self.conversation_history and isinstance(
+                self.conversation_history[-1], HumanMessage
+            ):
+                self.conversation_history.pop()
+            on_error(str(e))
+
+
+class AnthropicProvider(_LangChainChatProvider):
     """Anthropic Claude API provider using LangChain."""
-    
+
     def _initialize_llm(self):
-        """Initialize Claude via LangChain."""
         api_key = get_api_key("ANTHROPIC_API_KEY")
         if not api_key:
             self.llm = None
@@ -131,46 +173,19 @@ class AnthropicProvider(APIProvider):
 
         model_name = get_config_value(self.config, "API", "model", "claude-opus-4-5")
         self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
-        
+
         self.llm = ChatAnthropic(
             model=model_name,
+            api_key=api_key,
             max_tokens=self.max_tokens,
-            temperature=0.7
+            temperature=0.7,
         )
-    
-    def send_message(self, message_content, on_response, on_error):
-        """Send message to Claude via LangChain."""
-        try:
-            if not self._ensure_llm():
-                on_error(self._missing_key_message())
-                return
-
-            self._add_user_content(message_content)
-            self.trim_history()
-            
-            messages = [SystemMessage(content=self.system_prompt)] + self.conversation_history
-            response = self.llm.invoke(messages)
-            reply = response.content
-            self.add_assistant_message(reply)
-            
-            tokens = {
-                "input": response.response_metadata.get("usage", {}).get("input_tokens", 0),
-                "output": response.response_metadata.get("usage", {}).get("output_tokens", 0)
-            }
-            
-            on_response(reply, tokens)
-            
-        except Exception as e:
-            if self.conversation_history and isinstance(self.conversation_history[-1], HumanMessage):
-                self.conversation_history.pop()
-            on_error(str(e))
 
 
-class OpenAIProvider(APIProvider):
+class OpenAIProvider(_LangChainChatProvider):
     """OpenAI GPT API provider using LangChain."""
-    
+
     def _initialize_llm(self):
-        """Initialize GPT via LangChain."""
         api_key = get_api_key("OPENAI_API_KEY")
         if not api_key:
             self.llm = None
@@ -178,39 +193,44 @@ class OpenAIProvider(APIProvider):
 
         model_name = get_config_value(self.config, "API_OPENAI", "model", "gpt-4-turbo")
         self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
-        
+
         self.llm = ChatOpenAI(
             model=model_name,
+            api_key=api_key,
             max_tokens=self.max_tokens,
-            temperature=0.7
+            temperature=0.7,
         )
-    
-    def send_message(self, message_content, on_response, on_error):
-        """Send message to OpenAI via LangChain."""
-        try:
-            if not self._ensure_llm():
-                on_error(self._missing_key_message())
-                return
 
-            self._add_user_content(message_content)
-            self.trim_history()
-            
-            messages = [SystemMessage(content=self.system_prompt)] + self.conversation_history
-            response = self.llm.invoke(messages)
-            reply = response.content
-            self.add_assistant_message(reply)
-            
-            tokens = {
-                "input": response.response_metadata.get("usage", {}).get("prompt_tokens", 0),
-                "output": response.response_metadata.get("usage", {}).get("completion_tokens", 0)
-            }
-            
-            on_response(reply, tokens)
-            
-        except Exception as e:
-            if self.conversation_history and isinstance(self.conversation_history[-1], HumanMessage):
-                self.conversation_history.pop()
-            on_error(str(e))
+
+class OpenRouterProvider(_LangChainChatProvider):
+    """OpenRouter — one API key, many models (OpenAI-compatible + vision)."""
+
+    def _initialize_llm(self):
+        if ChatOpenAI is None:
+            self.llm = None
+            return
+
+        api_key = get_api_key("OPENROUTER_API_KEY")
+        if not api_key:
+            self.llm = None
+            return
+
+        model_name = get_config_value(
+            self.config, "API_OPENROUTER", "model", DEFAULT_OPENROUTER_MODEL
+        )
+        self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
+
+        self.llm = ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            base_url=OPENROUTER_BASE_URL,
+            max_tokens=self.max_tokens,
+            temperature=0.7,
+            default_headers={
+                "HTTP-Referer": "https://github.com/openrouter",
+                "X-Title": APP_NAME or "AI Overlay Agent",
+            },
+        )
 
 
 class GeminiProvider(APIProvider):
@@ -293,14 +313,17 @@ class GeminiProvider(APIProvider):
 
 def get_provider(config, system_prompt=None):
     """Factory function to create the appropriate API provider using LangChain."""
-    provider_name = get_config_value(config, "API", "provider", "anthropic").lower()
+    provider_name = get_config_value(config, "API", "provider", "openrouter").lower()
     prompt = system_prompt or get_default_system_prompt()
 
+    if provider_name == "openrouter":
+        return OpenRouterProvider(config, system_prompt=prompt)
     if provider_name == "openai":
         return OpenAIProvider(config, system_prompt=prompt)
-    elif provider_name == "gemini":
+    if provider_name == "gemini":
         return GeminiProvider(config, system_prompt=prompt)
-    else:  # Default to Anthropic
+    if provider_name == "anthropic":
         return AnthropicProvider(config, system_prompt=prompt)
+    return OpenRouterProvider(config, system_prompt=prompt)
 
 
