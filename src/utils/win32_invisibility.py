@@ -98,11 +98,14 @@ def collect_process_hwnds():
     return hwnds
 
 
-def apply_capture_exclusion(window=None, title=None, verbose=True):
+def apply_capture_exclusion(window=None, title=None, verbose=True, process_wide=True):
     """Apply WDA_EXCLUDEFROMCAPTURE to every related HWND.
 
     Uses DWM display affinity only — do NOT combine with WS_EX_NOREDIRECTIONBITMAP,
     which opts out of DWM and prevents capture exclusion from working.
+
+    process_wide=False is used for popups (Settings, model list) so they are not
+    affected later by delayed process-wide passes on the main overlay.
     """
     hwnds = set()
     if window is not None:
@@ -111,7 +114,8 @@ def apply_capture_exclusion(window=None, title=None, verbose=True):
         outer = _user32.FindWindowW(None, title)
         if outer:
             hwnds.add(outer)
-    hwnds.update(collect_process_hwnds())
+    if process_wide:
+        hwnds.update(collect_process_hwnds())
 
     protected = 0
     verified = 0
@@ -216,7 +220,7 @@ def apply_invisibility_to_tkinter_window(window):
         window.update()
         hide_window_from_taskbar(window)
         title = window.title() if hasattr(window, "title") else None
-        return apply_capture_exclusion(window, title, verbose=False)
+        return apply_capture_exclusion(window, title, verbose=False, process_wide=False)
     except Exception as e:
         print(f"Warning: Error applying invisibility to window: {e}")
         return False
@@ -232,20 +236,24 @@ class InvisibleTopLevel(tk.Toplevel):
         self.bind("<Map>", self._on_map, add="+")
 
     def show(self):
-        """Reveal the window, then apply capture invisibility."""
-        self.deiconify()
-        self.attributes("-topmost", True)
+        """Apply capture exclusion while hidden, then show (same flow as model dropdown)."""
         self.update_idletasks()
         self.update()
         self._apply_invisibility()
+        self.deiconify()
+        self.attributes("-topmost", True)
+        self.lift()
+        self.focus_force()
         refresh_cursor_policy(self)
 
     def _on_map(self, event=None):
-        """Re-apply privacy flags whenever the window is shown."""
-        apply_invisibility_to_tkinter_window(self)
-        self._invisibility_applied = True
+        if self._invisibility_applied:
+            return
+        self._apply_invisibility()
 
     def _apply_invisibility(self):
+        if self._invisibility_applied:
+            return
         apply_invisibility_to_tkinter_window(self)
         self._invisibility_applied = True
 
