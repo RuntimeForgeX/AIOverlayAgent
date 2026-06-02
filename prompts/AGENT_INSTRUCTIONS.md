@@ -7,7 +7,7 @@
 
 The `prompts/` directory is the **source of truth** for product intent, memory behavior, system personality, and low-level Windows implementation notes.
 
-The **running app** is `ai_overlay.py` plus `config.ini`, `app_config.ini`, build scripts, and an optional Windows installer — not a greenfield single-file prototype.
+The **running app** is `main.py` → `src/ui/app.py` (`OverlayApp`), plus `config.ini`, `app_config.ini`, build scripts, and an optional Windows installer — not a greenfield single-file prototype.
 
 When you change behavior, update the relevant prompt file **and** the code, then rebuild the `.exe` if shipping to installed users.
 
@@ -17,8 +17,9 @@ When you change behavior, update the relevant prompt file **and** the code, then
 
 1. **`PRD.md`** — Features, UI, colors, hotkeys, config format, non-goals
 2. **`memory.md`** — Conversation history, LangChain messages, export, threading (**read carefully before touching API/memory code**)
-3. **`system_prompt.md`** — Default AI personality (loaded from first fenced code block in that file)
-4. **`exploitation.md`** — Screenshots, capture exclusion (DWM), hotkeys, PyInstaller notes
+3. **`LICENSE.md`** — Premium JWT licensing, config URLs, activation, build, public key (**read before touching `src/licensing/` or startup**)
+4. **`system_prompt.md`** — Default AI personality (loaded from first fenced code block in that file)
+5. **`exploitation.md`** — Screenshots, capture exclusion (DWM), hotkeys, PyInstaller notes
 
 ---
 
@@ -26,13 +27,14 @@ When you change behavior, update the relevant prompt file **and** the code, then
 
 ```
 ai-overlay-agent/
-├── ai_overlay.py              # Main application
+├── main.py                    # Entry point (license gate → OverlayApp)
 ├── app_config.ini             # App name, exe name, publisher, version, AppId GUID
-├── config.ini                 # Provider, models, hotkeys, UI, capture settings
+├── config.ini                 # Provider, models, hotkeys, UI, capture, LICENSE
 ├── .env.example               # API key template (user copies to .env or uses Windows env vars)
 ├── requirements.txt           # Runtime Python dependencies
 ├── requirements_build.txt     # PyInstaller (build venv only)
-├── prompts/                   # This folder
+├── prompts/                   # This folder (incl. LICENSE.md)
+├── src/licensing/             # JWT license gate + offline verify
 ├── build/
 │   ├── ai_overlay_agent.spec
 │   ├── build_exe.bat

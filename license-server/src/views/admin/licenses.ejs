@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title><%= title %> · AI Overlay License</title>
+  <%- include('partials/head') %>
+</head>
+<body>
+  <%- include('partials/nav') %>
+  <div class="container-fluid px-4">
+    <%- include('partials/flash') %>
+    <h1 class="h3 mb-4">All licenses</h1>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>User</th><th>Plan</th><th>JTI</th><th>Expires</th><th>Devices</th><th>Status</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% licenses.forEach(function(lic) { %>
+          <tr>
+            <td><%= lic.user.email %></td>
+            <td><%= lic.plan %></td>
+            <td><small><%= lic.jti %></small></td>
+            <td><%= lic.expiresAt ? formatDate(lic.expiresAt) : 'Lifetime' %></td>
+            <td>
+              <% lic.devices.forEach(function(d) { %>
+                <div class="small mb-1">
+                  <code><%= d.deviceHash.slice(0,12) %>…</code>
+                  <form action="/admin/devices/<%= d.id %>/unbind" method="post" class="d-inline">
+                    <button class="btn btn-sm btn-link p-0">unbind</button>
+                  </form>
+                </div>
+              <% }); %>
+              <% if (!lic.devices.length) { %>—<% } %>
+            </td>
+            <td><%= lic.revoked ? 'Revoked' : 'Active' %></td>
+            <td>
+              <% if (!lic.revoked) { %>
+                <form action="/admin/licenses/<%= lic.id %>/revoke" method="post" class="d-inline">
+                  <button class="btn btn-sm btn-outline-danger">Revoke</button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

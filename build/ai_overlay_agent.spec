@@ -75,6 +75,12 @@ _COLLECT_PACKAGES = [
     "src.utils",
     "src.utils.win32_invisibility",
     "src.utils.error_handler",
+    "src.licensing",
+    "src.licensing.manager",
+    "src.licensing.dialog",
+    "src.licensing.fingerprint",
+    "src.licensing.config",
+    "src.licensing.public_key",
 ]
 
 for pkg in _COLLECT_PACKAGES:
@@ -85,6 +91,9 @@ for pkg in _COLLECT_PACKAGES:
 
 # Gemini SDK (handled by build/hook-google.generativeai.py)
 hiddenimports += [
+    "jwt",
+    "cryptography",
+    "requests",
     "google.generativeai",
     "google.ai.generativelanguage",
     "google.api_core",

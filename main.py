@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from src.config.settings import load_config, load_environment
 from src.config.models import normalize_config_model
+from src.licensing import run_license_gate
 from src.ui.app import OverlayApp
 from src.ui.cursor import apply_global_cursor_defaults, refresh_cursor_policy
 from src.utils.error_handler import install_in_app_error_handlers
@@ -18,6 +19,10 @@ def main():
     normalize_config_model(config)
 
     root = tk.Tk()
+    if not run_license_gate(root, config):
+        root.destroy()
+        return
+
     apply_global_cursor_defaults(root)
     root.configure(cursor="arrow")
     app = OverlayApp(root, config)

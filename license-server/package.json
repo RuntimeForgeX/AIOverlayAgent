@@ -1,0 +1,36 @@
+{
+  "name": "ai-overlay-license-server",
+  "version": "1.0.0",
+  "description": "Premium license server for AI Overlay Agent (Express + EJS + Prisma)",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev --name init",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.js",
+    "keys:generate": "node scripts/generate-keys.js",
+    "keys:sync-python": "node scripts/sync-public-key-to-python.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "bcryptjs": "^3.0.2",
+    "connect-pg-simple": "^10.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "validator": "^13.12.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

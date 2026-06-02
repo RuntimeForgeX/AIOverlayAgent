@@ -157,7 +157,15 @@ def get_config_value(config, section, key, default):
     try:
         if section == "HOTKEYS":
             return config.get(section, key, fallback=default)
-        elif section in ["API", "API_OPENAI", "API_GEMINI", "API_OPENROUTER", "UI", "CAPTURE"]:
+        elif section in [
+            "API",
+            "API_OPENAI",
+            "API_GEMINI",
+            "API_OPENROUTER",
+            "UI",
+            "CAPTURE",
+            "LICENSE",
+        ]:
             return config.get(section, key, fallback=default)
     except:
         pass

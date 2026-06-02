@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title><%= title %> · AI Overlay License</title>
+  <%- include('partials/head') %>
+</head>
+<body>
+  <%- include('partials/nav') %>
+  <div class="container">
+    <%- include('partials/flash') %>
+    <h1 class="h3 mb-4">Your dashboard</h1>
+
+    <div class="row g-4">
+      <div class="col-lg-5">
+        <div class="card p-4">
+          <h2 class="h5">Request new license</h2>
+          <form method="post" action="/request-license">
+            <div class="mb-3">
+              <label class="form-label">Plan</label>
+              <select name="plan" class="form-select" required>
+                <option value="15days">15 days</option>
+                <option value="30days">30 days</option>
+                <option value="lifetime">Lifetime</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Notes (optional)</label>
+              <textarea name="notes" class="form-control" rows="2"></textarea>
+            </div>
+            <button type="submit" class="btn btn-accent">Submit request</button>
+          </form>
+        </div>
+      </div>
+      <div class="col-lg-7">
+        <div class="card p-4 mb-4">
+          <h2 class="h5">Your licenses</h2>
+          <% if (!licenses.length) { %>
+            <p class="text-secondary mb-0">No licenses yet. Submit a request and wait for admin approval.</p>
+          <% } else { %>
+            <% licenses.forEach(function(lic) { %>
+              <div class="border-bottom border-secondary py-3">
+                <div class="d-flex justify-content-between">
+                  <strong><%= lic.plan %></strong>
+                  <% if (lic.revoked) { %><span class="badge bg-danger">Revoked</span>
+                  <% } else { %><span class="badge bg-success">Active</span><% } %>
+                </div>
+                <small class="text-secondary">Issued <%= formatDate(lic.issuedAt) %>
+                  <% if (lic.expiresAt) { %> · Expires <%= formatDate(lic.expiresAt) %><% } %>
+                </small>
+                <% if (lic.devices.length) { %>
+                  <p class="small mt-2 mb-1 text-success">Activated on <%= lic.devices.length %> device(s)</p>
+                <% } else if (lic.rawJwt && !lic.revoked) { %>
+                  <p class="small mt-2 mb-1">Paste this key in the desktop app (Activate):</p>
+                  <div class="jwt-box"><%= lic.rawJwt %></div>
+                <% } %>
+              </div>
+            <% }); %>
+          <% } %>
+        </div>
+        <div class="card p-4">
+          <h2 class="h5">Recent requests</h2>
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Plan</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody>
+              <% requests.forEach(function(r) { %>
+                <tr>
+                  <td><%= r.plan %></td>
+                  <td><%= r.status %></td>
+                  <td><%= formatDate(r.createdAt) %></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

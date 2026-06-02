@@ -1,0 +1,21 @@
+"""
+RS256 public key for offline JWT verification.
+Auto-synced from license-server/keys/public.pem — run: npm run keys:sync-python
+"""
+
+LICENSE_PUBLIC_KEY_PEM = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtgIVCOWypC/7x4/n5V5N
+vBsfvz0uUGg7xW0sRkrXGCCHmh4kBHsu2S2hYb80f//PjqAXiW5TChfwPDQJQWsh
+qnSUFITIS/hOiDZUibqUu31/k+uekTEWY17maXLYQ5VmTWIl57kwNxBWY9F3rZu8
+GkswjGqkxaPfV1847SpeHvUudnEyCSddAju9vedjBLS8se43dZtnQ4uP8UGMSdFE
+tNCfL2uUG1qVF2s65I+E0e789lkO/mJSPqR+ZksQsFHhyjM3ZruYbN3IrtEgV3+9
+MH7y6sDdK5hd5OQxijRGgsNc9EmZ2v6CYsjzA6Qets4E0JkEID/7bttD3msPYf85
+DQIDAQAB
+-----END PUBLIC KEY-----"""
+
+
+def get_license_public_key():
+    pem = (LICENSE_PUBLIC_KEY_PEM or "").strip()
+    if "REPLACE_WITH" in pem:
+        return None
+    return pem
