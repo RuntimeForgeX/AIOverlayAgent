@@ -1,5 +1,8 @@
 node_modules/
 .env
 keys/private.pem
+keys/*.bak
 *.log
 .DS_Store
+prisma/ca.pem
+keys

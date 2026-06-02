@@ -7,35 +7,35 @@ const {
 const { flash, sanitizeString } = require("../utils/helpers");
 
 async function dashboard(req, res) {
-  const [pending, licenses, stats] = await Promise.all([
-    prisma.keyRequest.findMany({
-      where: { status: "pending" },
-      include: { user: { select: { email: true, name: true } } },
-      orderBy: { createdAt: "asc" },
-    }),
-    prisma.license.findMany({
-      include: {
-        user: { select: { email: true, name: true } },
-        devices: true,
-      },
-      orderBy: { issuedAt: "desc" },
-      take: 50,
-    }),
-    Promise.all([
-      prisma.user.count(),
-      prisma.license.count({ where: { revoked: false } }),
-      prisma.keyRequest.count({ where: { status: "pending" } }),
-    ]),
-  ]);
+  const pending = await prisma.keyRequest.findMany({
+    where: { status: "pending" },
+    include: { user: { select: { email: true, name: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  const licenses = await prisma.license.findMany({
+    include: {
+      user: { select: { email: true, name: true } },
+      devices: true,
+    },
+    orderBy: { issuedAt: "desc" },
+    take: 50,
+  });
+  const usersCount = await prisma.user.count();
+  const activeLicensesCount = await prisma.license.count({
+    where: { revoked: false },
+  });
+  const pendingRequestsCount = await prisma.keyRequest.count({
+    where: { status: "pending" },
+  });
 
   res.render("admin/dashboard", {
     title: "Admin",
     pending,
     licenses,
     stats: {
-      users: stats[0],
-      activeLicenses: stats[1],
-      pendingRequests: stats[2],
+      users: usersCount,
+      activeLicenses: activeLicensesCount,
+      pendingRequests: pendingRequestsCount,
     },
   });
 }

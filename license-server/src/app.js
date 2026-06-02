@@ -2,9 +2,11 @@ require("dotenv").config();
 
 const path = require("path");
 const express = require("express");
+const ejs = require("ejs");
 const session = require("express-session");
 const helmet = require("helmet");
 const cors = require("cors");
+const { Pool } = require("pg");
 const pgSession = require("connect-pg-simple")(session);
 
 const { attachUser } = require("./middleware/auth");
@@ -16,10 +18,24 @@ const adminRoutes = require("./routes/admin.routes");
 const apiRoutes = require("./routes/api.routes");
 
 const app = express();
+const viewsPath = path.join(__dirname, "views");
 
 app.set("view engine", "ejs");
-app.set("views", path.join(__dirname, "views"));
+app.set("views", viewsPath);
 app.set("trust proxy", 1);
+
+// Resolve includes from views root (fixes partials in admin/* templates).
+app.engine(
+  "ejs",
+  (filePath, options, callback) => {
+    ejs.renderFile(
+      filePath,
+      options,
+      { root: viewsPath, views: [viewsPath], filename: filePath },
+      callback
+    );
+  }
+);
 
 app.use(
   helmet({
@@ -51,8 +67,25 @@ function buildSessionStore() {
   if (!process.env.DATABASE_URL) {
     return undefined;
   }
+
+  const dbUrl = new URL(process.env.DATABASE_URL);
+  const sslmode = dbUrl.searchParams.get("sslmode");
+  const sslaccept = dbUrl.searchParams.get("sslaccept");
+  const ssl =
+    sslmode && sslmode !== "disable"
+      ? { rejectUnauthorized: sslaccept !== "accept_invalid_certs" }
+      : undefined;
+  dbUrl.searchParams.delete("sslmode");
+  dbUrl.searchParams.delete("sslaccept");
+  dbUrl.searchParams.delete("sslcert");
+  dbUrl.searchParams.delete("sslrootcert");
+
   return new pgSession({
-    conString: process.env.DATABASE_URL,
+    pool: new Pool({
+      connectionString: dbUrl.toString(),
+      ssl,
+      max: 2,
+    }),
     tableName: "session",
     createTableIfMissing: true,
   });
@@ -77,6 +110,7 @@ app.use((req, res, next) => {
   res.locals.flash = getFlash(req);
   res.locals.formatDate = formatDate;
   res.locals.lastIssuedJwt = req.session.lastIssuedJwt || null;
+  res.locals.currentPath = req.path;
   next();
 });
 
@@ -112,10 +146,18 @@ app.use((req, res) => {
 
 app.use((err, req, res, _next) => {
   console.error(err);
-  res.status(500).render("error", {
-    title: "Error",
-    message: process.env.NODE_ENV === "development" ? err.message : "Server error.",
-  });
+  const code = err.code || "";
+  const isDb =
+    code.startsWith("P") ||
+    /database|prisma|ECONNREFUSED|Can't reach database|certificate|SSL/i.test(
+      err.message || ""
+    );
+  const message = isDb
+    ? "Database connection failed. Check DATABASE_URL in .env, verify the database is running/reachable, or run local Postgres: docker compose up -d"
+    : process.env.NODE_ENV === "development"
+      ? err.message
+      : "Server error.";
+  res.status(500).render("error", { title: "Error", message });
 });
 
 module.exports = app;

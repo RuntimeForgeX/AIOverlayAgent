@@ -5,76 +5,130 @@
   <%- include('partials/head') %>
 </head>
 <body>
-  <%- include('partials/nav') %>
-  <div class="container">
-    <%- include('partials/flash') %>
-    <h1 class="h3 mb-4">Your dashboard</h1>
+  <div class="app-shell">
+    <%- include('partials/nav') %>
+    <main class="app-main page-wrap">
+      <%- include('partials/flash') %>
+      <div class="hero-panel mb-4">
+        <span class="hero-kicker mb-3">Customer portal</span>
+        <h1 class="page-title display-6 mb-2">Your license workspace</h1>
+        <p class="page-subtitle mb-0">Request access, copy approved license keys, and track device activations in one place.</p>
+      </div>
 
-    <div class="row g-4">
-      <div class="col-lg-5">
-        <div class="card p-4">
-          <h2 class="h5">Request new license</h2>
-          <form method="post" action="/request-license">
-            <div class="mb-3">
-              <label class="form-label">Plan</label>
-              <select name="plan" class="form-select" required>
-                <option value="15days">15 days</option>
-                <option value="30days">30 days</option>
-                <option value="lifetime">Lifetime</option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Notes (optional)</label>
-              <textarea name="notes" class="form-control" rows="2"></textarea>
-            </div>
-            <button type="submit" class="btn btn-accent">Submit request</button>
-          </form>
-        </div>
-      </div>
-      <div class="col-lg-7">
-        <div class="card p-4 mb-4">
-          <h2 class="h5">Your licenses</h2>
-          <% if (!licenses.length) { %>
-            <p class="text-secondary mb-0">No licenses yet. Submit a request and wait for admin approval.</p>
-          <% } else { %>
-            <% licenses.forEach(function(lic) { %>
-              <div class="border-bottom border-secondary py-3">
-                <div class="d-flex justify-content-between">
-                  <strong><%= lic.plan %></strong>
-                  <% if (lic.revoked) { %><span class="badge bg-danger">Revoked</span>
-                  <% } else { %><span class="badge bg-success">Active</span><% } %>
-                </div>
-                <small class="text-secondary">Issued <%= formatDate(lic.issuedAt) %>
-                  <% if (lic.expiresAt) { %> · Expires <%= formatDate(lic.expiresAt) %><% } %>
-                </small>
-                <% if (lic.devices.length) { %>
-                  <p class="small mt-2 mb-1 text-success">Activated on <%= lic.devices.length %> device(s)</p>
-                <% } else if (lic.rawJwt && !lic.revoked) { %>
-                  <p class="small mt-2 mb-1">Paste this key in the desktop app (Activate):</p>
-                  <div class="jwt-box"><%= lic.rawJwt %></div>
-                <% } %>
+      <div class="row g-4">
+        <div class="col-lg-5">
+          <div class="card-app h-100">
+            <div class="card-header-app">
+              <div>
+                <p class="section-title">Request new license</p>
+                <p class="section-meta">Choose a plan for admin review.</p>
               </div>
-            <% }); %>
-          <% } %>
+            </div>
+            <div class="card-body-app">
+              <form method="post" action="/request-license">
+                <div class="mb-3">
+                  <label class="form-label" for="plan">Plan</label>
+                  <select id="plan" name="plan" class="form-select" required>
+                    <option value="15days">15 days</option>
+                    <option value="30days">30 days</option>
+                    <option value="lifetime">Lifetime</option>
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label" for="notes">Notes (optional)</label>
+                  <textarea id="notes" name="notes" class="form-control" rows="4" placeholder="Use case, machine name, purchase reference, etc."></textarea>
+                </div>
+                <button type="submit" class="btn btn-accent w-100 py-2">Submit request</button>
+              </form>
+            </div>
+          </div>
         </div>
-        <div class="card p-4">
-          <h2 class="h5">Recent requests</h2>
-          <table class="table table-sm mb-0">
-            <thead><tr><th>Plan</th><th>Status</th><th>Date</th></tr></thead>
-            <tbody>
-              <% requests.forEach(function(r) { %>
-                <tr>
-                  <td><%= r.plan %></td>
-                  <td><%= r.status %></td>
-                  <td><%= formatDate(r.createdAt) %></td>
-                </tr>
-              <% }); %>
-            </tbody>
-          </table>
+
+        <div class="col-lg-7">
+          <div class="card-app mb-4">
+            <div class="card-header-app">
+              <div>
+                <p class="section-title">Your licenses</p>
+                <p class="section-meta">Approved keys and activation state.</p>
+              </div>
+              <span class="badge-status badge-approved"><%= licenses.length %> total</span>
+            </div>
+            <div class="card-body-app">
+              <% if (!licenses.length) { %>
+                <div class="empty-state">
+                  <div class="empty-state-icon">◇</div>
+                  <p class="mb-0">No licenses yet. Submit a request and wait for admin approval.</p>
+                </div>
+              <% } else { %>
+                <% licenses.forEach(function(lic) { %>
+                  <div class="license-item">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                      <strong class="license-plan text-capitalize"><%= lic.plan %></strong>
+                      <% if (lic.revoked) { %>
+                        <span class="badge-status badge-revoked">Revoked</span>
+                      <% } else { %>
+                        <span class="badge-status badge-active">Active</span>
+                      <% } %>
+                    </div>
+                    <small class="meta-line d-block mt-1">
+                      Issued <%= formatDate(lic.issuedAt) %>
+                      <% if (lic.expiresAt) { %> · Expires <%= formatDate(lic.expiresAt) %><% } %>
+                    </small>
+                    <% if (lic.devices.length) { %>
+                      <p class="small mt-2 mb-0 fw-semibold" style="color: var(--success);">
+                        Activated on <%= lic.devices.length %> device(s)
+                      </p>
+                    <% } else if (lic.rawJwt && !lic.revoked) { %>
+                      <p class="small mt-3 mb-2 page-subtitle">Paste this key in the desktop app, then click Activate:</p>
+                      <div class="jwt-box" id="jwt-<%= lic.id %>"><%= lic.rawJwt %></div>
+                      <div class="jwt-actions">
+                        <button type="button" class="btn btn-sm btn-accent" data-copy-target="#jwt-<%= lic.id %>">Copy key</button>
+                      </div>
+                    <% } %>
+                  </div>
+                <% }); %>
+              <% } %>
+            </div>
+          </div>
+
+          <div class="card-app">
+            <div class="card-header-app">
+              <div>
+                <p class="section-title">Recent requests</p>
+                <p class="section-meta">Review status from the admin team.</p>
+              </div>
+            </div>
+            <div class="card-body-app p-0">
+              <% if (!requests.length) { %>
+                <div class="empty-state py-4"><p class="mb-0 small">No requests yet.</p></div>
+              <% } else { %>
+                <div class="table-responsive">
+                  <table class="table table-app table-sm mb-0">
+                    <thead>
+                      <tr><th>Plan</th><th>Status</th><th>Date</th></tr>
+                    </thead>
+                    <tbody>
+                      <% requests.forEach(function(r) { %>
+                        <tr>
+                          <td class="text-capitalize fw-semibold"><%= r.plan %></td>
+                          <td>
+                            <% var st = r.status; %>
+                            <span class="badge-status badge-<%= st === 'pending' ? 'pending' : st === 'approved' ? 'approved' : 'rejected' %>"><%= st %></span>
+                          </td>
+                          <td class="page-subtitle small"><%= formatDate(r.createdAt) %></td>
+                        </tr>
+                      <% }); %>
+                    </tbody>
+                  </table>
+                </div>
+              <% } %>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </main>
+    <%- include('partials/footer') %>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <%- include('partials/scripts') %>
 </body>
 </html>

@@ -3,18 +3,16 @@ const { flash, isValidPlan, sanitizeString } = require("../utils/helpers");
 
 async function dashboard(req, res) {
   const userId = req.session.userId;
-  const [licenses, requests] = await Promise.all([
-    prisma.license.findMany({
-      where: { userId },
-      include: { devices: true },
-      orderBy: { issuedAt: "desc" },
-    }),
-    prisma.keyRequest.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
-  ]);
+  const licenses = await prisma.license.findMany({
+    where: { userId },
+    include: { devices: true },
+    orderBy: { issuedAt: "desc" },
+  });
+  const requests = await prisma.keyRequest.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
 
   res.render("dashboard", {
     title: "Dashboard",
