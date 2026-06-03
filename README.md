@@ -65,8 +65,6 @@ Windows environment variables always take priority over `.env`.
 py -3 main.py
 ```
 
-Or double-click `run.bat`.
-
 ---
 
 ## Hotkeys
@@ -94,27 +92,6 @@ Customize in `config.ini` under `[HOTKEYS]`.
 **Installed app:** user overrides can live in:
 
 `%APPDATA%\PersonalAiAgentSurya\config.ini` and `.env`
-
----
-
-## Project structure
-
-```
-ai-overlay-agent/
-├── main.py                 # Entry point
-├── config.ini              # Runtime settings
-├── app_config.ini          # Branding / build metadata
-├── requirements.txt
-├── src/
-│   ├── config/             # settings, system prompt loader
-│   ├── services/           # LLM providers, capture, storage
-│   ├── ui/                 # OverlayApp, themes, markdown, cursor
-│   └── utils/              # Win32 invisibility, error handlers
-├── prompts/                # PRD, memory design, agent docs
-├── build/                  # PyInstaller + Inno Setup scripts
-├── installer/              # Windows installer (Inno Setup)
-└── release/                # Output: *_Setup.exe (after build)
-```
 
 ---
 
