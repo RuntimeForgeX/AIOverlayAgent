@@ -5,7 +5,7 @@ The Meeting Assistant is an isolated module designed to transcribe desktop audio
 
 ## Architecture
 - **Location**: `modules/meeting_assistant/`
-- **Audio Capture**: Uses `sounddevice` with the WASAPI backend in loopback mode to capture system/desktop audio (without capturing the microphone).
+- **Audio Capture**: Uses `sounddevice` to capture system/desktop audio via a loopback input device (e.g. **Stereo Mix**). Enable Stereo Mix under Windows Sound → Recording if no device is found.
 - **Transcription**: Uses the OpenAI Whisper API (`whisper-1` model).
 - **Storage**: All data is stored in `%APPDATA%\PersonalAiAgentSurya\meeting_assistant\`.
   - `transcripts/` — Individual transcript JSON files.

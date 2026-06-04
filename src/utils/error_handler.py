@@ -9,7 +9,11 @@ def _format_exception_message(exc_type, exc_value, exc_traceback):
     return "".join(lines)
 
 def install_in_app_error_handlers(app):
-    def tk_exception_handler(exc_type, exc_value, exc_traceback):
+    def tk_exception_handler(*args):
+        # Tk 8.6 / Python 3.14+ may pass (exc, val, tb) or (self, exc, val, tb).
+        if len(args) < 3:
+            return
+        exc_type, exc_value, exc_traceback = args[-3:]
         msg = _format_exception_message(exc_type, exc_value, exc_traceback)
         app.add_system_message(f"**UI Error:**\n```text\n{msg}\n```")
         print(f"Tkinter Error: {msg}", file=sys.stderr)

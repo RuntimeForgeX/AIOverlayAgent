@@ -2,12 +2,10 @@
 OpenAI Whisper API transcriber.
 
 Reuses the existing OPENAI_API_KEY from the application environment.
-Sends audio chunks to the Whisper API and returns timestamped transcriptions.
 """
 
 import io
 import threading
-from datetime import datetime
 from typing import Callable, Optional
 
 from src.config.settings import get_api_key
@@ -29,6 +27,7 @@ class WhisperTranscriber:
             return False
         try:
             from openai import OpenAI
+
             self._client = OpenAI(api_key=api_key)
             return True
         except Exception:
@@ -37,16 +36,50 @@ class WhisperTranscriber:
     def is_ready(self) -> bool:
         return self._ensure_client()
 
-    def transcribe(self, wav_bytes: bytes,
-                   on_result: Optional[Callable] = None,
-                   on_error: Optional[Callable] = None):
-        """Transcribe WAV audio bytes using Whisper API.
+    def _parse_response(self, response) -> tuple[str, list]:
+        text = getattr(response, "text", None) or str(response)
+        segments = []
+        raw_segments = getattr(response, "segments", None)
+        if raw_segments:
+            for seg in raw_segments:
+                segments.append({
+                    "start": getattr(seg, "start", 0),
+                    "end": getattr(seg, "end", 0),
+                    "text": getattr(seg, "text", ""),
+                })
+        return text, segments
 
-        Args:
-            wav_bytes: WAV-format audio data.
-            on_result: Callback with (text, segments) on success.
-            on_error: Callback with (error_string) on failure.
-        """
+    def _call_whisper(self, audio_file) -> tuple[str, list]:
+        """Call Whisper with verbose JSON, falling back to plain text."""
+        try:
+            with self._lock:
+                response = self._client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    response_format="verbose_json",
+                )
+            return self._parse_response(response)
+        except Exception as verbose_err:
+            audio_file.seek(0)
+            try:
+                with self._lock:
+                    response = self._client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        response_format="text",
+                    )
+                text = response if isinstance(response, str) else str(response)
+                return text, []
+            except Exception:
+                raise verbose_err
+
+    def transcribe(
+        self,
+        wav_bytes: bytes,
+        on_result: Optional[Callable] = None,
+        on_error: Optional[Callable] = None,
+    ):
+        """Transcribe WAV audio bytes on a background thread."""
         if not wav_bytes:
             if on_error:
                 on_error("No audio data to transcribe")
@@ -62,28 +95,9 @@ class WhisperTranscriber:
                         )
                     return
 
-                # Create a file-like object from bytes
                 audio_file = io.BytesIO(wav_bytes)
                 audio_file.name = "audio.wav"
-
-                with self._lock:
-                    response = self._client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file,
-                        response_format="verbose_json",
-                        timestamp_granularities=["segment"],
-                    )
-
-                text = response.text if hasattr(response, "text") else str(response)
-
-                segments = []
-                if hasattr(response, "segments") and response.segments:
-                    for seg in response.segments:
-                        segments.append({
-                            "start": getattr(seg, "start", 0),
-                            "end": getattr(seg, "end", 0),
-                            "text": getattr(seg, "text", ""),
-                        })
+                text, segments = self._call_whisper(audio_file)
 
                 if on_result:
                     on_result(text, segments)
@@ -92,21 +106,16 @@ class WhisperTranscriber:
                 if on_error:
                     on_error(f"Whisper transcription error: {e}")
 
-        thread = threading.Thread(target=_do_transcribe, daemon=True)
-        thread.start()
+        threading.Thread(target=_do_transcribe, daemon=True).start()
 
     def transcribe_sync(self, wav_bytes: bytes) -> dict:
-        """Synchronous transcription — returns {"text": str, "segments": list}."""
+        """Synchronous transcription — returns {text, segments, error}."""
         result = {"text": "", "segments": [], "error": None}
 
-        def on_result(text, segments):
-            result["text"] = text
-            result["segments"] = segments
+        if not wav_bytes:
+            result["error"] = "No audio data"
+            return result
 
-        def on_error(error):
-            result["error"] = error
-
-        # Run in current thread
         if not self._ensure_client():
             result["error"] = "OPENAI_API_KEY not set"
             return result
@@ -114,23 +123,9 @@ class WhisperTranscriber:
         try:
             audio_file = io.BytesIO(wav_bytes)
             audio_file.name = "audio.wav"
-
-            response = self._client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                response_format="verbose_json",
-                timestamp_granularities=["segment"],
-            )
-
-            result["text"] = response.text if hasattr(response, "text") else str(response)
-
-            if hasattr(response, "segments") and response.segments:
-                for seg in response.segments:
-                    result["segments"].append({
-                        "start": getattr(seg, "start", 0),
-                        "end": getattr(seg, "end", 0),
-                        "text": getattr(seg, "text", ""),
-                    })
+            text, segments = self._call_whisper(audio_file)
+            result["text"] = text
+            result["segments"] = segments
         except Exception as e:
             result["error"] = str(e)
 

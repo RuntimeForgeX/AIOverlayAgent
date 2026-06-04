@@ -84,7 +84,10 @@ class MeetingStorage:
         self.save_settings()
 
     def get_chunk_duration(self) -> int:
-        return self._settings.get("chunk_duration", 30)
+        return int(self._settings.get("chunk_duration", 30))
+
+    def get_silence_threshold(self) -> float:
+        return float(self._settings.get("silence_threshold", 200))
 
     # ------------------------------------------------------------------
     # History

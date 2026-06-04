@@ -38,6 +38,7 @@ class SuggestionEngine:
         self._config = config or load_config()
         self._personal_context_manager = personal_context_manager
         self._provider = None
+        self._busy = False
 
     def _get_provider(self):
         """Get or create an LLM provider for suggestions."""
@@ -82,7 +83,11 @@ class SuggestionEngine:
                 on_error("No transcript text to generate suggestions from")
             return
 
+        if self._busy:
+            return
+
         def _do_suggest():
+            self._busy = True
             try:
                 provider = self._get_provider()
                 if not provider or not provider.is_ready():
@@ -111,6 +116,8 @@ class SuggestionEngine:
             except Exception as e:
                 if on_error:
                     on_error(f"Suggestion generation error: {e}")
+            finally:
+                self._busy = False
 
         thread = threading.Thread(target=_do_suggest, daemon=True)
         thread.start()
