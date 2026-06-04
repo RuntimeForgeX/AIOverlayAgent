@@ -13,6 +13,7 @@ from src.licensing.manager import (
     verify_license_offline,
 )
 from src.ui.styles.themes import COLORS, set_active_theme
+from src.ui.close_button import create_header_close_button
 
 
 class LicenseGate:
@@ -60,6 +61,9 @@ class LicenseGate:
             fg=COLORS["accent_green"],
             bg=COLORS["bg_header"],
         ).pack(side=tk.LEFT, padx=16, pady=12)
+        create_header_close_button(
+            header, self._on_quit,
+        ).pack(side=tk.RIGHT, padx=(4, 8), pady=8)
 
         body = tk.Frame(self.root, bg=COLORS["bg_main"], padx=20, pady=16)
         body.pack(fill=tk.BOTH, expand=True)

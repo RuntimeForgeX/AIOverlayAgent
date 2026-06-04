@@ -9,6 +9,7 @@ from datetime import datetime
 from PIL import Image, ImageTk
 from tkinter import scrolledtext
 import keyboard
+import ctypes
 
 from src.ui.styles.themes import COLORS, _current_theme_name, set_active_theme, detect_system_theme
 from src.config.settings import (
@@ -40,11 +41,13 @@ from src.services.capture import capture_and_compress_screenshot
 from src.utils.win32_invisibility import (
     apply_capture_exclusion,
     apply_invisibility_to_tkinter_window,
+    apply_overlay_window_config,
     get_tkinter_hwnd,
     get_window_handle,
     find_window_by_class,
     hide_window_from_taskbar,
     make_window_invisible_to_capture,
+    present_overlay_window,
     InvisibleModelDropdown,
     InvisibleTopLevel,
 )
@@ -57,6 +60,7 @@ from src.config.models import (
 from src.services.llm_provider import get_provider, HumanMessage, AIMessage
 from src.ui.markdown.renderer import configure_markdown_tags, render_markdown
 from src.ui.cursor import refresh_cursor_policy
+from src.ui.close_button import create_header_close_button
 # ============================================================================
 # MAIN APPLICATION
 # ============================================================================
@@ -68,9 +72,11 @@ class OverlayApp:
     THEME_CYCLE = ["dark", "light", "system"]
     MAX_QUEUE = 10
 
-    def __init__(self, root, config):
+    def __init__(self, root, config, personal_context_manager=None, meeting_storage=None):
         self.root = root
         self.config = config
+        self.personal_context_manager = personal_context_manager
+        self.meeting_storage = meeting_storage
         self.is_sending = False
         self.is_visible = True
         self.total_input_tokens = 0
@@ -88,14 +94,6 @@ class OverlayApp:
         self._loading_history = False
         self._quick_buttons = []
 
-        # Section customization
-        self.sections_enabled = {
-            "mcq": True,
-            "cpp": True,
-            "sql": True,
-            "dsa": True
-        }
-        
         # Load theme preference and apply
         theme_pref = load_theme_preference()
         set_active_theme(theme_pref)
@@ -149,7 +147,7 @@ class OverlayApp:
     def _start_invisibility_polling(self):
         self.apply_main_window_invisibility(verbose=False)
         self.root.after(3000, self._start_invisibility_polling)
-    
+
     def setup_window(self):
         """Setup tkinter window with proper invisibility configuration."""
         width = int(get_config_value(self.config, "UI", "width", "500"))
@@ -161,12 +159,7 @@ class OverlayApp:
         self.root.geometry(f"{width}x{height}+{start_x}+{start_y}")
         self.root.title(WINDOW_TITLE)
         self.root.configure(bg=COLORS["bg_main"])
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", opacity)
-        try:
-            self.root.attributes("-toolwindow", True)
-        except tk.TclError:
-            pass
+        apply_overlay_window_config(self.root, opacity=opacity)
         self.root.resizable(False, False)
         
         self.window_opacity = opacity
@@ -308,7 +301,7 @@ class OverlayApp:
         )
         self.theme_btn.pack(side=tk.RIGHT, padx=5, pady=8)
         self.theme_btn.bind("<Button-1>", lambda e: self._cycle_theme())
-        
+
         # Chat history panel
         self.chat_frame = tk.Frame(self.root, bg=COLORS["bg_chat"])
         self.chat_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
@@ -390,16 +383,19 @@ class OverlayApp:
         btn_defs = [
             ("📷 Capture", self.hotkey_capture),
             ("🗑 Clear", self.hotkey_clear),
+            ("📄 Context", self.open_personal_context),
+            ("🎤 Meeting", self.open_meeting_assistant),
             ("💾 Export", self.hotkey_export),
-            ("⚙️ Settings", self.open_settings),
+            ("✕ Close", self._on_window_close),
         ]
         for text, cmd in btn_defs:
+            is_close = text == "✕ Close"
             btn = tk.Button(
                 self.buttons_frame,
                 text=text,
                 bg=COLORS["bg_header"],
-                fg=COLORS["text_normal"],
-                font=("Courier New", 8),
+                fg=COLORS["error_red"] if is_close else COLORS["text_normal"],
+                font=("Courier New", 8, "bold") if is_close else ("Courier New", 8),
                 relief=tk.FLAT,
                 command=cmd,
             )
@@ -409,15 +405,19 @@ class OverlayApp:
         # Status bar
         self.status_frame = tk.Frame(self.root, bg=COLORS["border"], height=1)
         self.status_frame.pack(fill=tk.X)
-        
+
+        self.footer_frame = tk.Frame(self.root, bg=COLORS["bg_main"])
+        self.footer_frame.pack(fill=tk.X, padx=8, pady=(4, 8))
+
         self.status_label = tk.Label(
-            self.root,
+            self.footer_frame,
             text="ready · 0 in / 0 out tokens",
             bg=COLORS["bg_main"],
             fg=COLORS["text_dim"],
-            font=("Courier New", 8)
+            font=("Courier New", 8),
+            anchor="w",
         )
-        self.status_label.pack(fill=tk.X, padx=8, pady=4)
+        self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _configure_chat_tags(self):
         """Configure all text tags on the chat display."""
@@ -501,19 +501,25 @@ class OverlayApp:
             preview.geometry(f"{image.width}x{image.height + 50}")
             preview.configure(bg=COLORS["bg_main"])
 
+            preview_header = tk.Frame(preview, bg=COLORS["bg_header"])
+            preview_header.pack(fill=tk.X)
+            tk.Label(
+                preview_header,
+                text="Screenshot Preview",
+                fg=COLORS["accent_green"],
+                bg=COLORS["bg_header"],
+                font=("Courier New", 10, "bold"),
+            ).pack(side=tk.LEFT, padx=10, pady=6)
+            create_header_close_button(
+                preview_header, preview.destroy,
+            ).pack(side=tk.RIGHT, padx=(4, 8), pady=4)
+
             photo = ImageTk.PhotoImage(image)
             lbl = tk.Label(preview, image=photo, bg=COLORS["bg_main"])
             lbl.image = photo
             lbl.pack(padx=5, pady=5)
 
-            tk.Button(
-                preview, text="Close", command=preview.destroy,
-                bg=COLORS["accent_green"], fg=COLORS["bg_main"],
-                font=("Courier New", 9, "bold"), relief=tk.FLAT,
-            ).pack(pady=5)
-
             preview.show()
-            refresh_cursor_policy(preview)
         except Exception:
             self.add_system_message("[WARN] Could not preview screenshot")
 
@@ -686,10 +692,14 @@ class OverlayApp:
         # Quick buttons
         self.buttons_frame.configure(bg=c["bg_main"])
         for btn in self._quick_buttons:
-            btn.configure(bg=c["bg_header"], fg=c["text_normal"])
+            if btn.cget("text") == "✕ Close":
+                btn.configure(bg=c["bg_header"], fg=c["error_red"])
+            else:
+                btn.configure(bg=c["bg_header"], fg=c["text_normal"])
 
-        # Status
+        # Footer / status
         self.status_frame.configure(bg=c["border"])
+        self.footer_frame.configure(bg=c["bg_main"])
         self.status_label.configure(bg=c["bg_main"], fg=c["text_dim"])
 
         # Rebuild thumbnails with new colors
@@ -789,7 +799,43 @@ class OverlayApp:
         else:
             message_content = message_text
         
-        # Send in background thread
+        # Inject personal context if enabled (additive — does not change existing flow)
+        if self.personal_context_manager and self.personal_context_manager.is_enabled():
+            try:
+                from modules.personal_context.context_builder import build_context_block
+                context_block = build_context_block(self.personal_context_manager)
+                if context_block:
+                    # Temporarily augment system prompt with context
+                    original_prompt = self.provider.system_prompt
+                    self.provider.system_prompt = original_prompt + "\n\n" + context_block
+                    
+                    # Wrap the send_message call to restore the original prompt afterward
+                    def wrapped_on_response(reply, tokens):
+                        self.provider.system_prompt = original_prompt
+                        self.on_api_response(reply, tokens)
+                        
+                    def wrapped_on_error(error_text):
+                        self.provider.system_prompt = original_prompt
+                        self.on_api_error(error_text)
+                        
+                    # Send in background thread
+                    def api_call():
+                        try:
+                            self.provider.send_message(
+                                message_content,
+                                wrapped_on_response,
+                                wrapped_on_error
+                            )
+                        except Exception as e:
+                            wrapped_on_error(str(e))
+                    
+                    thread = threading.Thread(target=api_call, daemon=True)
+                    thread.start()
+                    return
+            except Exception as e:
+                self.add_system_message(f"[WARN] Failed to inject personal context: {e}")
+        
+        # Send in background thread (default path)
         def api_call():
             try:
                 self.provider.send_message(
@@ -842,12 +888,8 @@ class OverlayApp:
             self.root.withdraw()
             self.is_visible = False
         else:
-            self.root.deiconify()
-            self.root.attributes("-topmost", True)
+            present_overlay_window(self.root)
             self.is_visible = True
-
-            # Re-apply privacy flags when window becomes visible again
-            apply_invisibility_to_tkinter_window(self.root)
     
     def hotkey_capture(self):
         """Capture screen and queue for sending (Ctrl+Shift+S)."""
@@ -862,12 +904,8 @@ class OverlayApp:
         quality = int(get_config_value(self.config, "CAPTURE", "jpeg_quality", "82"))
         base64_image = capture_and_compress_screenshot(max_width=max_w, jpeg_quality=quality)
         
-        self.root.deiconify()
-        self.root.attributes("-topmost", True)
-        
-        # Re-apply privacy flags after showing window
-        apply_invisibility_to_tkinter_window(self.root)
-        
+        present_overlay_window(self.root)
+
         if not base64_image:
             self.add_system_message("[WARN] Screenshot capture failed")
             return
@@ -1022,135 +1060,43 @@ class OverlayApp:
             self.add_system_message(f"[WARN] Error switching model: {str(e)}")
             self.model_var.set("Claude 4.5 Opus")  # Reset dropdown
     
-    def open_settings(self):
-        """Open settings window for customization."""
-        settings_window = InvisibleTopLevel(self.root)
-        settings_window.title("Settings")
-        settings_window.geometry("400x500")
-        settings_window.configure(bg=COLORS["bg_main"])
-        
-        # Title
-        title = tk.Label(
-            settings_window,
-            text="Response Sections",
-            fg=COLORS["accent_green"],
-            bg=COLORS["bg_main"],
-            font=("Courier New", 12, "bold")
-        )
-        title.pack(pady=10)
-        
-        # Section toggles
-        sections = [
-            ("📋 MCQ", "mcq", "Multiple Choice Questions"),
-            ("💻 C++", "cpp", "C++ Code & Solutions"),
-            ("📊 SQL", "sql", "SQL Queries & Code"),
-            ("🧠 DSA", "dsa", "Data Structures & Algorithms")
-        ]
-        
-        var_refs = {}
-        for label, key, desc in sections:
-            frame = tk.Frame(settings_window, bg=COLORS["bg_input"])
-            frame.pack(fill=tk.X, padx=15, pady=8)
+    def open_personal_context(self):
+        """Open the Personal Context manager."""
+        if not self.personal_context_manager:
+            self.add_system_message("[WARN] Personal Context module not loaded.")
+            return
             
-            var = tk.BooleanVar(value=self.sections_enabled[key])
-            var_refs[key] = var
+        try:
+            from modules.personal_context.ui import PersonalContextUI
+            if not hasattr(self, '_personal_context_ui'):
+                self._personal_context_ui = PersonalContextUI(
+                    self.root, 
+                    self.personal_context_manager,
+                    add_system_message=self.add_system_message
+                )
+            self._personal_context_ui.open()
+        except Exception as e:
+            self.add_system_message(f"[WARN] Failed to open Personal Context: {e}")
+
+    def open_meeting_assistant(self):
+        """Open the Meeting Assistant."""
+        if not self.meeting_storage:
+            self.add_system_message("[WARN] Meeting Assistant module not loaded.")
+            return
             
-            cb = tk.Checkbutton(
-                frame,
-                text=f"{label} - {desc}",
-                variable=var,
-                bg=COLORS["bg_input"],
-                fg=COLORS["text_normal"],
-                selectcolor=COLORS["bg_input"],
-                activebackground=COLORS["bg_input"],
-                activeforeground=COLORS["accent_green"],
-                font=("Courier New", 9)
-            )
-            cb.pack(anchor=tk.W)
-        
-        # Edit prompt button
-        tk.Button(
-            settings_window,
-            text="📝 Edit System Prompt",
-            bg=COLORS["accent_green"],
-            fg=COLORS["bg_main"],
-            font=("Courier New", 10, "bold"),
-            relief=tk.FLAT,
-            command=self.edit_system_prompt
-        ).pack(pady=15, padx=15, fill=tk.X)
-        
-        # Save button
-        def save_sections():
-            for key, var in var_refs.items():
-                self.sections_enabled[key] = var.get()
-            self.add_system_message(f"[OK] Sections updated")
-            settings_window.destroy()
-        
-        tk.Button(
-            settings_window,
-            text="Save Settings",
-            bg=COLORS["accent_blue"],
-            fg=COLORS["bg_main"],
-            font=("Courier New", 10, "bold"),
-            relief=tk.FLAT,
-            command=save_sections
-        ).pack(pady=10, padx=15, fill=tk.X)
-
-        settings_window.show()
-        refresh_cursor_policy(settings_window)
-    
-    def edit_system_prompt(self):
-        """Edit the system prompt."""
-        prompt_window = InvisibleTopLevel(self.root)
-        prompt_window.title("Edit System Prompt")
-        prompt_window.geometry("600x500")
-        prompt_window.configure(bg=COLORS["bg_main"])
-        
-        # Title
-        title = tk.Label(
-            prompt_window,
-            text="System Prompt Editor",
-            fg=COLORS["accent_green"],
-            bg=COLORS["bg_main"],
-            font=("Courier New", 12, "bold")
-        )
-        title.pack(pady=10)
-        
-        # Prompt text editor
-        editor = tk.Text(
-            prompt_window,
-            bg=COLORS["bg_input"],
-            fg=COLORS["text_normal"],
-            font=("Courier New", 9),
-            wrap=tk.WORD,
-            relief=tk.FLAT
-        )
-        editor.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Load current prompt
-        current_prompt = self.provider.system_prompt if self.provider else ""
-        editor.insert(1.0, current_prompt)
-        
-        # Save button
-        def save_prompt():
-            new_prompt = editor.get(1.0, tk.END).strip()
-            if self.provider:
-                self.provider.system_prompt = new_prompt
-                self.add_system_message("[OK] System prompt updated")
-            prompt_window.destroy()
-        
-        tk.Button(
-            prompt_window,
-            text="Save Prompt",
-            bg=COLORS["accent_green"],
-            fg=COLORS["bg_main"],
-            font=("Courier New", 10, "bold"),
-            relief=tk.FLAT,
-            command=save_prompt
-        ).pack(pady=10, padx=10, fill=tk.X)
-
-        prompt_window.show()
-        refresh_cursor_policy(prompt_window)
+        try:
+            from modules.meeting_assistant.ui import MeetingAssistantUI
+            if not hasattr(self, '_meeting_assistant_ui'):
+                self._meeting_assistant_ui = MeetingAssistantUI(
+                    self.root,
+                    self.meeting_storage,
+                    personal_context_manager=self.personal_context_manager,
+                    config=self.config,
+                    add_system_message=self.add_system_message
+                )
+            self._meeting_assistant_ui.open()
+        except Exception as e:
+            self.add_system_message(f"[WARN] Failed to open Meeting Assistant: {e}")
     
     def _schedule_on_main_thread(self, callback):
         """Run a hotkey handler on the Tk main thread (required for UI updates)."""

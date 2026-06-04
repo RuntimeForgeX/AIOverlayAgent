@@ -15,11 +15,13 @@ GA_ROOTOWNER = 3
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_APPWINDOW = 0x00040000
+WS_EX_NOACTIVATE = 0x08000000
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
 SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
 SWP_FRAMECHANGED = 0x0020
+HWND_TOPMOST = -1
 
 _user32 = ctypes.windll.user32
 _user32.SetWindowDisplayAffinity.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
@@ -154,7 +156,7 @@ def _set_window_exstyle(hwnd, style):
 
 
 def hide_window_from_taskbar(window):
-    """Hide a window from the Windows taskbar and Alt+Tab switcher."""
+    """Hide a window from the Windows taskbar and make it strictly non-activating."""
     try:
         window.attributes("-toolwindow", True)
     except tk.TclError:
@@ -165,7 +167,7 @@ def hide_window_from_taskbar(window):
         title = window.title() if hasattr(window, "title") else None
         for hwnd in collect_tk_window_hwnds(window, title):
             style = _get_window_exstyle(hwnd)
-            _set_window_exstyle(hwnd, (style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW)
+            _set_window_exstyle(hwnd, (style | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) & ~WS_EX_APPWINDOW)
     except Exception as e:
         print(f"Warning: Could not hide window from taskbar: {e}")
 
@@ -226,6 +228,57 @@ def apply_invisibility_to_tkinter_window(window):
         return False
 
 
+def apply_overlay_window_config(window, opacity=None):
+    """Apply borderless overlay chrome shared by fixed panels (main overlay, modules)."""
+    try:
+        window.overrideredirect(True)
+    except tk.TclError:
+        pass
+    try:
+        window.attributes("-toolwindow", True)
+    except tk.TclError:
+        pass
+    try:
+        window.wm_attributes("-topmost", True)
+        if opacity is not None:
+            window.wm_attributes("-alpha", opacity)
+    except tk.TclError:
+        pass
+
+
+def raise_without_activate(window):
+    """Raise z-order without activating — keeps fullscreen apps focused."""
+    try:
+        window.update_idletasks()
+        title = window.title() if hasattr(window, "title") else None
+        for hwnd in collect_tk_window_hwnds(window, title):
+            _user32.SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE,
+            )
+    except Exception:
+        pass
+
+
+def present_overlay_window(window):
+    """Show or re-raise any overlay/toplevel without taskbar flash or focus steal."""
+    try:
+        window.update_idletasks()
+        window.update()
+        apply_invisibility_to_tkinter_window(window)
+        window.deiconify()
+        window.attributes("-topmost", True)
+        raise_without_activate(window)
+        refresh_cursor_policy(window)
+    except tk.TclError:
+        pass
+
+
 class InvisibleTopLevel(tk.Toplevel):
     """Toplevel window hidden until invisibility is applied — no visible flash."""
 
@@ -240,11 +293,7 @@ class InvisibleTopLevel(tk.Toplevel):
         self.update_idletasks()
         self.update()
         self._apply_invisibility()
-        self.deiconify()
-        self.attributes("-topmost", True)
-        self.lift()
-        self.focus_force()
-        refresh_cursor_policy(self)
+        present_overlay_window(self)
 
     def _on_map(self, event=None):
         if self._invisibility_applied:
@@ -256,6 +305,14 @@ class InvisibleTopLevel(tk.Toplevel):
             return
         apply_invisibility_to_tkinter_window(self)
         self._invisibility_applied = True
+
+
+class InvisibleOverlayPanel(InvisibleTopLevel):
+    """Borderless fixed panel — Personal Context, Meeting Assistant, etc."""
+
+    def __init__(self, parent, *args, opacity=None, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        apply_overlay_window_config(self, opacity=opacity)
 
 
 class InvisibleModelDropdown(tk.Frame):
@@ -303,7 +360,7 @@ class InvisibleModelDropdown(tk.Frame):
         root = self.winfo_toplevel()
 
         self._popup = InvisibleTopLevel(root)
-        self._popup.overrideredirect(True)
+        apply_overlay_window_config(self._popup)
         self._popup.configure(bg=COLORS["bg_input"])
 
         frame = tk.Frame(
