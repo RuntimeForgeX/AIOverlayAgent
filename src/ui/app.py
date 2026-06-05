@@ -58,7 +58,7 @@ from src.config.models import (
     apply_model_to_config,
 )
 from src.services.llm_provider import get_provider, HumanMessage, AIMessage
-from src.ui.markdown.renderer import configure_markdown_tags, render_markdown
+from src.ui.markdown.renderer import configure_markdown_tags, render_markdown, clean_bmp
 from src.ui.cursor import refresh_cursor_policy
 from src.ui.close_button import create_header_close_button
 # ============================================================================
@@ -609,6 +609,14 @@ class OverlayApp:
             text = entry.get("text", "")
             is_system = entry.get("is_system", False) or role == "system"
             self.add_message_to_display(role, text, is_system=is_system)
+            
+            # Reconstruct LLM provider conversation history for active context
+            if not is_system and self.provider and text.strip():
+                if role == "you":
+                    self.provider.add_text_message(text)
+                elif role == "ai":
+                    self.provider.add_assistant_message(text)
+                    
         self.display_log = list(history)
         self._loading_history = False
 
@@ -717,7 +725,7 @@ class OverlayApp:
         timestamp = datetime.now().strftime("%H:%M")
         
         if is_system:
-            self.chat_display.insert(tk.END, f"\n{text}\n", "system")
+            self.chat_display.insert(tk.END, f"\n{clean_bmp(text)}\n", "system")
         else:
             if role == "you":
                 self.chat_display.insert(tk.END, f"\n{timestamp}  ", "timestamp")
@@ -725,9 +733,9 @@ class OverlayApp:
                 
                 # Handle screenshot indicator
                 if "[📷" in text or "[Screenshot]" in text:
-                    self.chat_display.insert(tk.END, text + "\n", "screenshot_tag")
+                    self.chat_display.insert(tk.END, clean_bmp(text) + "\n", "screenshot_tag")
                 else:
-                    self.chat_display.insert(tk.END, text + "\n", "text_normal")
+                    self.chat_display.insert(tk.END, clean_bmp(text) + "\n", "text_normal")
             
             else:  # AI response — full markdown rendering
                 self.chat_display.insert(tk.END, f"\n{timestamp}  ", "timestamp")
@@ -787,7 +795,9 @@ class OverlayApp:
         # Build API message content — only user-typed text (may be empty with screenshots)
         if has_screenshots:
             images = [entry["b64"] for entry in self.screenshot_queue]
-            api_text = message_text
+            api_text = message_text.strip()
+            if not api_text:
+                api_text = "Please analyze the screenshot(s)."
             if len(images) == 1:
                 message_content = {"image": images[0], "text": api_text}
             else:
@@ -996,6 +1006,13 @@ class OverlayApp:
     
     def change_prompt_profile(self, title):
         """Switch the active system prompt profile."""
+        if self.is_sending:
+            self.add_system_message("[WARN] Cannot switch prompt profile while AI is thinking.")
+            curr_profile = get_prompt_by_id(self.selected_prompt_id)
+            if curr_profile:
+                self.prompt_var.set(curr_profile["title"])
+            return
+
         profile = get_prompt_by_title(title)
         if not profile:
             self.add_system_message(f"[WARN] Unknown prompt profile: {title}")
@@ -1011,6 +1028,11 @@ class OverlayApp:
 
     def change_model(self, model_name):
         """Change the AI model on the fly."""
+        if self.is_sending:
+            self.add_system_message("[WARN] Cannot switch model while AI is thinking.")
+            self.model_var.set(resolve_model_label(self.config))
+            return
+
         model_map = build_model_map()
 
         if model_name not in model_map:

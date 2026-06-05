@@ -16,3 +16,4 @@ PyPDF2>=3.0.0
 sounddevice>=0.4.6
 pydub>=0.25.1
 numpy>=1.20.0
+markdown>=3.10.0

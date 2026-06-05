@@ -1,5 +1,7 @@
 import re
 import tkinter as tk
+import markdown
+from html.parser import HTMLParser
 # ============================================================================
 # MARKDOWN RENDERER
 # ============================================================================
@@ -33,8 +35,6 @@ _KEYWORDS = {
 _KEYWORD_PATTERN = re.compile(
     r'\b(' + '|'.join(re.escape(kw) for kw in sorted(_KEYWORDS, key=len, reverse=True)) + r')\b'
 )
-
-INLINE_RE = re.compile(r'(`[^`]+`|\*\*[^*]+?\*\*|\*[^*]+?\*)')
 
 
 def configure_markdown_tags(widget, colors):
@@ -100,124 +100,198 @@ def configure_markdown_tags(widget, colors):
                       font=("Courier New", 9, "underline"))
 
 
-def render_markdown(widget, text, colors):
-    """Parse markdown text and insert into a tkinter Text widget with formatting."""
-    lines = text.split("\n")
-    i = 0
-
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-
-        # Fenced code block
-        if stripped.startswith("```"):
-            lang = stripped[3:].strip()
-            code_lines = []
-            i += 1
-            while i < len(lines):
-                if lines[i].strip() == "```" or lines[i].strip().startswith("```") and len(lines[i].strip()) == 3:
-                    break
-                code_lines.append(lines[i])
-                i += 1
-            if i < len(lines):
-                i += 1  # skip closing ```
-            _render_code_block(widget, "\n".join(code_lines), lang)
-            continue
-
-        # Heading
-        if stripped.startswith("### "):
-            widget.insert(tk.END, stripped[4:] + "\n", "md_h3")
-        elif stripped.startswith("## "):
-            widget.insert(tk.END, stripped[3:] + "\n", "md_h2")
-        elif stripped.startswith("# "):
-            widget.insert(tk.END, stripped[2:] + "\n", "md_h1")
-
-        # Horizontal rule
-        elif re.match(r'^[-*_]{3,}\s*$', stripped):
-            widget.insert(tk.END, "─" * 40 + "\n", "md_hr")
-
-        # Blockquote
-        elif stripped.startswith("> "):
-            widget.insert(tk.END, "  │ ", "md_blockquote")
-            _render_inline_text(widget, stripped[2:], "md_blockquote")
-            widget.insert(tk.END, "\n")
-
-        # Unordered list
-        elif re.match(r'^[\s]*[-*+]\s', line):
-            indent = len(line) - len(line.lstrip())
-            text_content = re.sub(r'^[\s]*[-*+]\s', '', line)
-            prefix = "  " * (indent // 2) + "  • "
-            widget.insert(tk.END, prefix, "md_list")
-            _render_inline_text(widget, text_content, "md_list")
-            widget.insert(tk.END, "\n")
-
-        # Ordered list
-        elif re.match(r'^[\s]*\d+\.\s', line):
-            match_obj = re.match(r'^[\s]*(\d+)\.\s(.*)$', line)
-            if match_obj:
-                indent = len(line) - len(line.lstrip())
-                num = match_obj.group(1)
-                text_content = match_obj.group(2)
-                prefix = "  " * (indent // 2) + f"  {num}. "
-                widget.insert(tk.END, prefix, "md_list")
-                _render_inline_text(widget, text_content, "md_list")
-                widget.insert(tk.END, "\n")
-
-        # Table
-        elif "|" in stripped and stripped.startswith("|"):
-            table_lines = [line]
-            i += 1
-            while i < len(lines) and "|" in lines[i].strip() and lines[i].strip().startswith("|"):
-                table_lines.append(lines[i])
-                i += 1
-            _render_table(widget, table_lines)
-            continue
-
-        # Empty line
-        elif not stripped:
-            widget.insert(tk.END, "\n")
-
-        # Normal paragraph
+def clean_bmp(text):
+    """Convert Unicode characters outside BMP (e.g. emojis) to UTF-16 surrogate pairs for Tkinter compatibility on Windows."""
+    if not isinstance(text, str):
+        return text
+    result = []
+    for c in text:
+        cp = ord(c)
+        if cp > 0xffff:
+            high = (cp - 0x10000) // 0x400 + 0xD800
+            low = (cp - 0x10000) % 0x400 + 0xDC00
+            result.append(chr(high) + chr(low))
         else:
-            _render_inline_text(widget, line, "ai_text")
-            widget.insert(tk.END, "\n")
-
-        i += 1
+            result.append(c)
+    return "".join(result)
 
 
-def _render_inline_text(widget, text, base_tag):
-    """Render text with inline markdown (bold, italic, code) into the widget."""
-    parts = INLINE_RE.split(text)
-    for part in parts:
-        if not part:
-            continue
-        if part.startswith("`") and part.endswith("`") and len(part) > 1:
-            widget.insert(tk.END, part[1:-1], "md_inline_code")
-        elif part.startswith("**") and part.endswith("**") and len(part) > 3:
-            widget.insert(tk.END, part[2:-2], "md_bold")
-        elif part.startswith("*") and part.endswith("*") and len(part) > 1 and not part.startswith("**"):
-            widget.insert(tk.END, part[1:-1], "md_italic")
+def safe_insert(widget, index, text, tags=None):
+    """Safely insert text into a Tkinter widget, avoiding crashes from non-BMP characters."""
+    if tags is not None:
+        widget.insert(index, clean_bmp(text), tags)
+    else:
+        widget.insert(index, clean_bmp(text))
+
+
+class HTMLToTkinterParser(HTMLParser):
+    """Parses generated HTML representation of Markdown and renders it into a Tkinter Text widget."""
+
+    def __init__(self, widget, colors):
+        super().__init__()
+        self.widget = widget
+        self.colors = colors
+        self.tag_stack = []
+        self.current_tags = []
+        self.list_counters = []
+        
+        # State variables
+        self.in_table = False
+        self.table_rows = []
+        self.current_row = []
+        self.in_thead = False
+        self.in_code = False
+        self.code_text = []
+        self.code_lang = ""
+
+    def handle_starttag(self, tag, attrs):
+        self.tag_stack.append(tag)
+        attrs_dict = dict(attrs)
+        
+        if tag == 'h1':
+            self.current_tags.append('md_h1')
+        elif tag == 'h2':
+            self.current_tags.append('md_h2')
+        elif tag == 'h3':
+            self.current_tags.append('md_h3')
+        elif tag in ('strong', 'b'):
+            self.current_tags.append('md_bold')
+        elif tag in ('em', 'i'):
+            self.current_tags.append('md_italic')
+        elif tag == 'code':
+            self.in_code = True
+            if 'pre' in self.tag_stack:
+                self.current_tags.append('code_block')
+                cls = attrs_dict.get('class', '')
+                if cls.startswith('language-'):
+                    self.code_lang = cls[9:]
+            else:
+                self.current_tags.append('md_inline_code')
+        elif tag == 'blockquote':
+            self.current_tags.append('md_blockquote')
+            safe_insert(self.widget, tk.END, "  │ ", tuple(self.current_tags))
+        elif tag == 'ol':
+            self.list_counters.append(1)
+        elif tag == 'ul':
+            self.list_counters.append(None)
+        elif tag == 'li':
+            nesting = len(self.list_counters)
+            indent = "  " * (nesting - 1)
+            if self.list_counters and self.list_counters[-1] is not None:
+                num = self.list_counters[-1]
+                prefix = f"{indent}{num}. "
+                self.list_counters[-1] += 1
+            else:
+                prefix = f"{indent}• "
+            safe_insert(self.widget, tk.END, prefix, 'md_list')
+            self.current_tags.append('md_list')
+        elif tag == 'table':
+            self.in_table = True
+            self.table_rows = []
+        elif tag == 'thead':
+            self.in_thead = True
+        elif tag == 'tr':
+            self.current_row = []
+        elif tag in ('td', 'th'):
+            self.current_row.append("")
+        elif tag == 'hr':
+            safe_insert(self.widget, tk.END, "─" * 40 + "\n", "md_hr")
+        elif tag == 'a':
+            self.current_tags.append('md_link')
+
+    def handle_endtag(self, tag):
+        if self.tag_stack and self.tag_stack[-1] == tag:
+            self.tag_stack.pop()
+            
+        if tag in ('h1', 'h2', 'h3', 'strong', 'b', 'em', 'i', 'blockquote', 'li', 'a'):
+            if tag == 'blockquote':
+                safe_insert(self.widget, tk.END, "\n")
+            elif tag in ('h1', 'h2', 'h3', 'li'):
+                safe_insert(self.widget, tk.END, "\n")
+            
+            map_tag = {
+                'h1': 'md_h1', 'h2': 'md_h2', 'h3': 'md_h3',
+                'strong': 'md_bold', 'b': 'md_bold',
+                'em': 'md_italic', 'i': 'md_italic',
+                'blockquote': 'md_blockquote', 'li': 'md_list',
+                'a': 'md_link'
+            }.get(tag)
+            if map_tag in self.current_tags:
+                self.current_tags.remove(map_tag)
+                
+        elif tag == 'code':
+            self.in_code = False
+            if 'code_block' in self.current_tags:
+                self.current_tags.remove('code_block')
+                code_content = "".join(self.code_text)
+                self.code_text = []
+                
+                if self.code_lang:
+                    safe_insert(self.widget, tk.END, f"  {self.code_lang}\n", "code_lang")
+                
+                start_idx = self.widget.index(tk.END)
+                lines = code_content.split("\n")
+                if lines and not lines[-1]:
+                    lines.pop()
+                for line in lines:
+                    safe_insert(self.widget, tk.END, f"  {line}\n", "code_block")
+                end_idx = self.widget.index(tk.END)
+                _apply_syntax_highlighting(self.widget, start_idx, end_idx)
+                safe_insert(self.widget, tk.END, "\n")
+                self.code_lang = ""
+            elif 'md_inline_code' in self.current_tags:
+                self.current_tags.remove('md_inline_code')
+                
+        elif tag in ('ul', 'ol'):
+            if self.list_counters:
+                self.list_counters.pop()
+        elif tag == 'thead':
+            self.in_thead = False
+        elif tag == 'tr':
+            self.table_rows.append((list(self.current_row), self.in_thead))
+        elif tag == 'table':
+            self.in_table = False
+            self._render_parsed_table()
+        elif tag == 'p':
+            if 'blockquote' not in self.tag_stack:
+                safe_insert(self.widget, tk.END, "\n")
+        elif tag == 'br':
+            safe_insert(self.widget, tk.END, "\n")
+
+    def handle_data(self, data):
+        if self.in_table:
+            if any(t in ('td', 'th') for t in self.tag_stack) and self.current_row:
+                self.current_row[-1] += data
+        elif self.in_code and 'pre' in self.tag_stack:
+            self.code_text.append(data)
         else:
-            widget.insert(tk.END, part, base_tag)
+            tags = tuple(self.current_tags) if self.current_tags else ('ai_text',)
+            safe_insert(self.widget, tk.END, data, tags)
 
-
-def _render_code_block(widget, code_text, lang):
-    """Render a fenced code block with syntax highlighting."""
-    if lang:
-        widget.insert(tk.END, f"  {lang}\n", "code_lang")
-
-    # Record start position for syntax highlighting
-    start_idx = widget.index(tk.END)
-
-    for code_line in code_text.split("\n"):
-        widget.insert(tk.END, f"  {code_line}\n", "code_block")
-
-    end_idx = widget.index(tk.END)
-
-    # Apply syntax highlighting
-    _apply_syntax_highlighting(widget, start_idx, end_idx)
-
-    widget.insert(tk.END, "\n")
+    def _render_parsed_table(self):
+        if not self.table_rows:
+            return
+        
+        max_cols = max(len(row) for row, _ in self.table_rows)
+        if max_cols == 0:
+            return
+        col_widths = [0] * max_cols
+        for row, _ in self.table_rows:
+            for j, cell in enumerate(row):
+                col_widths[j] = max(col_widths[j], len(cell))
+                
+        for idx, (row, is_header) in enumerate(self.table_rows):
+            tag = "md_table_header" if is_header else "md_table"
+            line_parts = []
+            for j in range(max_cols):
+                cell = row[j] if j < len(row) else ""
+                line_parts.append(cell.ljust(col_widths[j]))
+            safe_insert(self.widget, tk.END, "  │ " + " │ ".join(line_parts) + " │\n", tag)
+            
+            if is_header:
+                sep_parts = ["─" * w for w in col_widths]
+                safe_insert(self.widget, tk.END, "  ├─" + "─┼─".join(sep_parts) + "─┤\n", "md_table")
+        safe_insert(self.widget, tk.END, "\n")
 
 
 def _apply_syntax_highlighting(widget, start, end):
@@ -250,39 +324,12 @@ def _apply_syntax_highlighting(widget, start, end):
         pass  # Syntax highlighting is non-critical
 
 
-def _render_table(widget, table_lines):
-    """Render a markdown table as monospace-aligned text."""
-    rows = []
-    has_separator = False
-    for line in table_lines:
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if all(re.match(r'^[-:]+$', c.strip()) for c in cells if c.strip()):
-            has_separator = True
-            continue
-        rows.append(cells)
+def render_markdown(widget, text, colors):
+    """Parse markdown text using python-markdown and render into a tkinter Text widget."""
+    html = markdown.markdown(text, extensions=['fenced_code', 'tables'])
+    parser = HTMLToTkinterParser(widget, colors)
+    parser.feed(html)
 
-    if not rows:
-        return
 
-    max_cols = max(len(r) for r in rows)
-    col_widths = [0] * max_cols
-    for row in rows:
-        for j, cell in enumerate(row):
-            if j < max_cols:
-                col_widths[j] = max(col_widths[j], len(cell))
-
-    for idx, row in enumerate(rows):
-        tag = "md_table_header" if idx == 0 and has_separator else "md_table"
-        line_parts = []
-        for j in range(max_cols):
-            cell = row[j] if j < len(row) else ""
-            line_parts.append(cell.ljust(col_widths[j]))
-        widget.insert(tk.END, "  │ " + " │ ".join(line_parts) + " │\n", tag)
-
-        if idx == 0 and has_separator:
-            sep_parts = ["─" * w for w in col_widths]
-            widget.insert(tk.END, "  ├─" + "─┼─".join(sep_parts) + "─┤\n", "md_table")
-
-    widget.insert(tk.END, "\n")
 
 

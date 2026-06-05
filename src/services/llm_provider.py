@@ -140,18 +140,31 @@ class _LangChainChatProvider(APIProvider):
 
             messages = [SystemMessage(content=self.system_prompt)] + self.conversation_history
             response = self.llm.invoke(messages)
-            reply = response.content
-            if isinstance(reply, list):
+            reply = getattr(response, "content", "")
+            if reply is None:
+                reply = ""
+            elif isinstance(reply, list):
                 reply = "".join(
                     block.get("text", "") if isinstance(block, dict) else str(block)
                     for block in reply
                 )
+            else:
+                reply = str(reply)
+            
+            metadata = getattr(response, "response_metadata", {}) or {}
+            
+            if not reply.strip():
+                if metadata.get("finish_reason") == "length":
+                    reply = "[The model ran out of output tokens during its reasoning/thinking phase. I have increased the default max_tokens in config.ini, please restart the application to apply the change.]"
+                else:
+                    reply = "[Empty response returned by the model. This can happen if the model is overloaded, rate-limited, or if there is a credit/quota issue on your provider account.]"
+                
             self.add_assistant_message(reply)
 
-            usage = response.response_metadata.get("usage", {}) or {}
+            usage = metadata.get("usage", {}) or {}
             tokens = {
-                "input": usage.get("input_tokens") or usage.get("prompt_tokens", 0),
-                "output": usage.get("output_tokens") or usage.get("completion_tokens", 0),
+                "input": usage.get("input_tokens") or usage.get("prompt_tokens") or 0,
+                "output": usage.get("output_tokens") or usage.get("completion_tokens") or 0,
             }
             on_response(reply, tokens)
         except Exception as e:
@@ -172,12 +185,10 @@ class AnthropicProvider(_LangChainChatProvider):
             return
 
         model_name = get_config_value(self.config, "API", "model", "claude-opus-4-5")
-        self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
 
         self.llm = ChatAnthropic(
             model=model_name,
             api_key=api_key,
-            max_tokens=self.max_tokens,
             temperature=0.7,
         )
 
@@ -192,12 +203,10 @@ class OpenAIProvider(_LangChainChatProvider):
             return
 
         model_name = get_config_value(self.config, "API_OPENAI", "model", "gpt-4-turbo")
-        self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
 
         self.llm = ChatOpenAI(
             model=model_name,
             api_key=api_key,
-            max_tokens=self.max_tokens,
             temperature=0.7,
         )
 
@@ -218,13 +227,11 @@ class OpenRouterProvider(_LangChainChatProvider):
         model_name = get_config_value(
             self.config, "API_OPENROUTER", "model", DEFAULT_OPENROUTER_MODEL
         )
-        self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
 
         self.llm = ChatOpenAI(
             model=model_name,
             api_key=api_key,
             base_url=OPENROUTER_BASE_URL,
-            max_tokens=self.max_tokens,
             temperature=0.7,
             default_headers={
                 "HTTP-Referer": "https://github.com/openrouter",
@@ -249,7 +256,6 @@ class GeminiProvider(APIProvider):
 
         genai.configure(api_key=api_key)
         model_name = get_config_value(self.config, "API_GEMINI", "model", "gemini-2.5-pro")
-        self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
         self.llm = genai.GenerativeModel(model_name, system_instruction=self.system_prompt)
 
     def apply_system_prompt(self, prompt_text):
@@ -258,7 +264,6 @@ class GeminiProvider(APIProvider):
         if not genai_available or self.llm is None:
             return
         model_name = get_config_value(self.config, "API_GEMINI", "model", "gemini-2.5-pro")
-        self.max_tokens = int(get_config_value(self.config, "API", "max_tokens", "1500"))
         self.llm = genai.GenerativeModel(model_name, system_instruction=self.system_prompt)
     
     def send_message(self, message_content, on_response, on_error):
@@ -271,7 +276,7 @@ class GeminiProvider(APIProvider):
                     on_error(self._missing_key_message())
                 return
 
-            gen_config = genai.types.GenerationConfig(max_output_tokens=self.max_tokens)
+            gen_config = genai.types.GenerationConfig()
 
             if isinstance(message_content, str):
                 self.add_text_message(message_content)
@@ -299,10 +304,29 @@ class GeminiProvider(APIProvider):
                     payload, generation_config=gen_config
                 )
             
-            reply = response.text
+            # Safe text extraction handling safety block / candidacy issues
+            try:
+                reply = response.text
+            except ValueError:
+                # Typically occurs when response is blocked or contains no candidates
+                try:
+                    if hasattr(response, "prompt_feedback") and response.prompt_feedback.block_reason:
+                        reply = f"[Blocked by Gemini Safety Filters. Reason: {response.prompt_feedback.block_reason}]"
+                    else:
+                        reply = "[No response text generated by the model. It might have been blocked or failed.]"
+                except Exception:
+                    reply = "[No response text generated by the model.]"
+            
+            if not reply.strip():
+                reply = "[Empty response returned by the model.]"
+            
             self.add_assistant_message(reply)
             
             tokens = {"input": 0, "output": 0}
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                tokens["input"] = getattr(response.usage_metadata, "prompt_token_count", 0)
+                tokens["output"] = getattr(response.usage_metadata, "candidates_token_count", 0)
+            
             on_response(reply, tokens)
             
         except Exception as e:

@@ -22,6 +22,7 @@ MODEL_CHOICES: list[tuple[str, str, str]] = [
     ("OR GPT-5.5", "openrouter", "openai/gpt-5.5"),
     ("OR GPT-5.2", "openrouter", "openai/gpt-5.2"),
     ("OR GPT-5.2 Pro", "openrouter", "openai/gpt-5.2-pro"),
+    ("OR kimi 4.6","openrouter","moonshotai/kimi-k2.6"),
     # --- Direct OpenAI (OPENAI_API_KEY) — Chat Completions compatible ---
     ("GPT-5.5 (direct)", "openai", "gpt-5.5"),
     ("GPT-5.2 (direct)", "openai", "gpt-5.2"),
