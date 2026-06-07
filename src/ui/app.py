@@ -30,6 +30,7 @@ from src.services.storage import (
     load_screenshot_queue_from_disk,
     load_prompt_profile_id,
     save_prompt_profile_id,
+    clear_screenshot_queue,
 )
 from src.prompts import (
     get_all_prompts,
@@ -48,6 +49,8 @@ from src.utils.win32_invisibility import (
     hide_window_from_taskbar,
     make_window_invisible_to_capture,
     present_overlay_window,
+    assign_ephemeral_window_title,
+    InvisibleContextMenu,
     InvisibleModelDropdown,
     InvisibleTopLevel,
 )
@@ -132,21 +135,29 @@ class OverlayApp:
 
     def setup_invisibility_maintenance(self):
         """Keep capture exclusion active (required for Meet/OBS after window is shown)."""
-        self.root.after(0, lambda: self.apply_main_window_invisibility(verbose=False))
-        self.root.after(100, lambda: self.apply_main_window_invisibility(verbose=False))
-        self.root.after(500, lambda: self.apply_main_window_invisibility(verbose=False))
+        # Aggressive initial pass + periodic lightweight re-check.
+        self.root.after(0, self.apply_main_window_invisibility)
+        self.root.after(100, self.apply_main_window_invisibility)
+        self.root.after(500, self.apply_main_window_invisibility)
         self.root.after(1500, self._start_invisibility_polling)
 
         for event in ("<Map>", "<FocusIn>"):
             self.root.bind(
                 event,
-                lambda e: self.apply_main_window_invisibility(verbose=False),
+                lambda e: self.apply_main_window_invisibility(),
                 add="+",
             )
 
     def _start_invisibility_polling(self):
-        self.apply_main_window_invisibility(verbose=False)
-        self.root.after(3000, self._start_invisibility_polling)
+        """Periodic re-polling at 5-second intervals.
+        Skipped when window is hidden or invisibility is already confirmed.
+        """
+        if not self.is_visible:
+            self.root.after(5000, self._start_invisibility_polling)
+            return
+        if not self.window_invisible:
+            self.apply_main_window_invisibility()
+        self.root.after(5000, self._start_invisibility_polling)
 
     def setup_window(self):
         """Setup tkinter window with proper invisibility configuration."""
@@ -157,7 +168,8 @@ class OverlayApp:
         opacity = float(get_config_value(self.config, "UI", "opacity", "0.94"))
         
         self.root.geometry(f"{width}x{height}+{start_x}+{start_y}")
-        self.root.title(WINDOW_TITLE)
+        # Randomize the OS window title: the visible UI header is the "real" title.
+        assign_ephemeral_window_title(self.root, hint="overlay")
         self.root.configure(bg=COLORS["bg_main"])
         apply_overlay_window_config(self.root, opacity=opacity)
         self.root.resizable(False, False)
@@ -169,29 +181,18 @@ class OverlayApp:
         refresh_cursor_policy(self.root)
         self.apply_main_window_invisibility()
 
-    def apply_main_window_invisibility(self, verbose=True):
+    def apply_main_window_invisibility(self, verbose=False):
         """Apply capture exclusion to the main overlay and all process windows."""
-        if verbose:
-            print("\n[INVISIBILITY SETUP]")
         self.root.update_idletasks()
         self.root.update()
 
         hide_window_from_taskbar(self.root)
-        success = apply_capture_exclusion(self.root, WINDOW_TITLE, verbose=verbose)
+        success = apply_capture_exclusion(self.root, title=None, verbose=verbose)
         self.window_invisible = success
 
         hwnd = get_tkinter_hwnd(self.root)
         if hwnd:
             self.window_hwnd = hwnd
-            if verbose:
-                print(f"Primary window handle: {hwnd}")
-
-        if verbose:
-            if success:
-                print("[OK] Invisibility configuration complete\n")
-            else:
-                print("[WARN] Invisibility may be incomplete\n")
-                self.apply_invisibility_alternative()
 
         if verbose:
             if self.window_invisible:
@@ -200,13 +201,12 @@ class OverlayApp:
                 self.add_system_message("[WARN] Initialized · INVISIBILITY NOT CONFIRMED · Check console")
 
     def apply_invisibility_alternative(self):
-        """Fallback if title-based lookup fails."""
+        """Fallback if primary capture exclusion fails."""
         try:
-            hwnd = get_tkinter_hwnd(self.root) or get_window_handle(WINDOW_TITLE)
+            hwnd = get_tkinter_hwnd(self.root)
             if not hwnd:
                 hwnd = find_window_by_class("Tk")
             if hwnd and hwnd > 0:
-                print(f"Found fallback window handle: {hwnd}")
                 self.window_hwnd = hwnd
                 if make_window_invisible_to_capture(hwnd):
                     self.window_invisible = True
@@ -524,26 +524,16 @@ class OverlayApp:
             self.add_system_message("[WARN] Could not preview screenshot")
 
     def _show_thumb_context_menu(self, event, idx):
-        """Show right-click context menu for a thumbnail."""
-        menu = tk.Menu(
-            self.root, tearoff=0,
-            bg=COLORS["bg_input"], fg=COLORS["text_normal"],
-            activebackground=COLORS["accent_green"],
-            activeforeground=COLORS["bg_main"],
-            font=("Courier New", 8),
-            cursor="arrow",
-        )
-        menu.add_command(label="Preview", command=lambda: self._preview_screenshot(idx))
+        """Show right-click context menu for a thumbnail (capture-excluded)."""
+        items = [("Preview", lambda: self._preview_screenshot(idx), True)]
         if idx > 0:
-            menu.add_command(label="◀ Move Left", command=lambda: self._move_screenshot(idx, -1))
+            items.append(("◀ Move Left", lambda: self._move_screenshot(idx, -1), True))
         if idx < len(self.screenshot_queue) - 1:
-            menu.add_command(label="Move Right ▶", command=lambda: self._move_screenshot(idx, 1))
-        menu.add_separator()
-        menu.add_command(label="✕ Remove", command=lambda: self._remove_screenshot(idx))
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
+            items.append(("Move Right ▶", lambda: self._move_screenshot(idx, 1), True))
+        items.append(("─" * 24, lambda: None, False))
+        items.append(("✕ Remove", lambda: self._remove_screenshot(idx), True))
+        menu = InvisibleContextMenu(self.root, items)
+        menu.open_at(event.x_root, event.y_root)
 
     def _rebuild_thumbnail_strip(self):
         """Rebuild the thumbnail strip from the screenshot queue."""
@@ -1134,6 +1124,8 @@ class OverlayApp:
             except Exception:
                 pass
         self._hotkey_removers.clear()
+        # Security: clear any volatile screenshot data on clean exit.
+        clear_screenshot_queue()
         self.root.destroy()
 
     def _warmup_keyboard_listener(self):
