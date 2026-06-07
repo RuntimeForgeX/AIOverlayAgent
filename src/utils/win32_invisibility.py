@@ -384,7 +384,7 @@ class InvisibleTopLevel(tk.Toplevel):
 
 
 class InvisibleOverlayPanel(InvisibleTopLevel):
-    """Borderless fixed panel — Personal Context, Meeting Assistant, etc."""
+    """Borderless fixed panel — Personal Context, etc."""
 
     def __init__(self, parent, *args, opacity=None, **kwargs):
         super().__init__(parent, *args, **kwargs)

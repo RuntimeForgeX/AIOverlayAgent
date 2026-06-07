@@ -10,3 +10,4 @@ dist/
 pyinstaller_build/
 release/
 .venv_build/
+.kimchi

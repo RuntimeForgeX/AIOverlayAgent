@@ -31,16 +31,9 @@ def main():
         print(f"Failed to load PersonalContextManager: {e}")
         personal_context_manager = None
 
-    try:
-        from modules.meeting_assistant.storage import MeetingStorage
-        meeting_storage = MeetingStorage()
-    except Exception as e:
-        print(f"Failed to load MeetingStorage: {e}")
-        meeting_storage = None
-
     apply_global_cursor_defaults(root)
     root.configure(cursor="arrow")
-    app = OverlayApp(root, config, personal_context_manager=personal_context_manager, meeting_storage=meeting_storage)
+    app = OverlayApp(root, config, personal_context_manager=personal_context_manager)
     refresh_cursor_policy(root)
     
     install_in_app_error_handlers(app)

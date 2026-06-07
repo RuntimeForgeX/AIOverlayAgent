@@ -75,11 +75,10 @@ class OverlayApp:
     THEME_CYCLE = ["dark", "light", "system"]
     MAX_QUEUE = 10
 
-    def __init__(self, root, config, personal_context_manager=None, meeting_storage=None):
+    def __init__(self, root, config, personal_context_manager=None):
         self.root = root
         self.config = config
         self.personal_context_manager = personal_context_manager
-        self.meeting_storage = meeting_storage
         self.is_sending = False
         self.is_visible = True
         self.total_input_tokens = 0
@@ -384,7 +383,6 @@ class OverlayApp:
             ("📷 Capture", self.hotkey_capture),
             ("🗑 Clear", self.hotkey_clear),
             ("📄 Context", self.open_personal_context),
-            ("🎤 Meeting", self.open_meeting_assistant),
             ("💾 Export", self.hotkey_export),
             ("✕ Close", self._on_window_close),
         ]
@@ -1090,26 +1088,6 @@ class OverlayApp:
         except Exception as e:
             self.add_system_message(f"[WARN] Failed to open Personal Context: {e}")
 
-    def open_meeting_assistant(self):
-        """Open the Meeting Assistant."""
-        if not self.meeting_storage:
-            self.add_system_message("[WARN] Meeting Assistant module not loaded.")
-            return
-            
-        try:
-            from modules.meeting_assistant.ui import MeetingAssistantUI
-            if not hasattr(self, '_meeting_assistant_ui'):
-                self._meeting_assistant_ui = MeetingAssistantUI(
-                    self.root,
-                    self.meeting_storage,
-                    personal_context_manager=self.personal_context_manager,
-                    config=self.config,
-                    add_system_message=self.add_system_message
-                )
-            self._meeting_assistant_ui.open()
-        except Exception as e:
-            self.add_system_message(f"[WARN] Failed to open Meeting Assistant: {e}")
-    
     def _schedule_on_main_thread(self, callback):
         """Run a hotkey handler on the Tk main thread (required for UI updates)."""
         try:
