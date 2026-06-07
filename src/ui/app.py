@@ -75,10 +75,9 @@ class OverlayApp:
     THEME_CYCLE = ["dark", "light", "system"]
     MAX_QUEUE = 10
 
-    def __init__(self, root, config, personal_context_manager=None):
+    def __init__(self, root, config):
         self.root = root
         self.config = config
-        self.personal_context_manager = personal_context_manager
         self.is_sending = False
         self.is_visible = True
         self.total_input_tokens = 0
@@ -382,7 +381,6 @@ class OverlayApp:
         btn_defs = [
             ("📷 Capture", self.hotkey_capture),
             ("🗑 Clear", self.hotkey_clear),
-            ("📄 Context", self.open_personal_context),
             ("💾 Export", self.hotkey_export),
             ("✕ Close", self._on_window_close),
         ]
@@ -797,42 +795,6 @@ class OverlayApp:
         else:
             message_content = message_text
         
-        # Inject personal context if enabled (additive — does not change existing flow)
-        if self.personal_context_manager and self.personal_context_manager.is_enabled():
-            try:
-                from modules.personal_context.context_builder import build_context_block
-                context_block = build_context_block(self.personal_context_manager)
-                if context_block:
-                    # Temporarily augment system prompt with context
-                    original_prompt = self.provider.system_prompt
-                    self.provider.system_prompt = original_prompt + "\n\n" + context_block
-                    
-                    # Wrap the send_message call to restore the original prompt afterward
-                    def wrapped_on_response(reply, tokens):
-                        self.provider.system_prompt = original_prompt
-                        self.on_api_response(reply, tokens)
-                        
-                    def wrapped_on_error(error_text):
-                        self.provider.system_prompt = original_prompt
-                        self.on_api_error(error_text)
-                        
-                    # Send in background thread
-                    def api_call():
-                        try:
-                            self.provider.send_message(
-                                message_content,
-                                wrapped_on_response,
-                                wrapped_on_error
-                            )
-                        except Exception as e:
-                            wrapped_on_error(str(e))
-                    
-                    thread = threading.Thread(target=api_call, daemon=True)
-                    thread.start()
-                    return
-            except Exception as e:
-                self.add_system_message(f"[WARN] Failed to inject personal context: {e}")
-        
         # Send in background thread (default path)
         def api_call():
             try:
@@ -1070,24 +1032,6 @@ class OverlayApp:
             self.add_system_message(f"[WARN] Error switching model: {str(e)}")
             self.model_var.set("Claude 4.5 Opus")  # Reset dropdown
     
-    def open_personal_context(self):
-        """Open the Personal Context manager."""
-        if not self.personal_context_manager:
-            self.add_system_message("[WARN] Personal Context module not loaded.")
-            return
-            
-        try:
-            from modules.personal_context.ui import PersonalContextUI
-            if not hasattr(self, '_personal_context_ui'):
-                self._personal_context_ui = PersonalContextUI(
-                    self.root, 
-                    self.personal_context_manager,
-                    add_system_message=self.add_system_message
-                )
-            self._personal_context_ui.open()
-        except Exception as e:
-            self.add_system_message(f"[WARN] Failed to open Personal Context: {e}")
-
     def _schedule_on_main_thread(self, callback):
         """Run a hotkey handler on the Tk main thread (required for UI updates)."""
         try:

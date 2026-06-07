@@ -384,7 +384,7 @@ class InvisibleTopLevel(tk.Toplevel):
 
 
 class InvisibleOverlayPanel(InvisibleTopLevel):
-    """Borderless fixed panel — Personal Context, etc."""
+    """Borderless fixed panel — addon modules, settings, etc."""
 
     def __init__(self, parent, *args, opacity=None, **kwargs):
         super().__init__(parent, *args, **kwargs)

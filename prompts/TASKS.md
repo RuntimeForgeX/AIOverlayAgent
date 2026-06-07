@@ -11,7 +11,6 @@
 - [x] Create PyInstaller and Inno Setup build scripts.
 - [x] Add local persistence for chat history, settings, and screenshot queues.
 - [x] **[2026-06-03]** Generate `.ai` project knowledge system documentation.
-- [x] Implement Personal Context System (PDF/DOCX/TXT parsing, storage, context injection).
 
 ## In Progress
 - None active.

@@ -20,7 +20,7 @@ Tkinter is used for the UI layer, but **all capture-sensitive surfaces** are wra
 
 ```
 InvisibleTopLevel          → base capture-excluded popup
-  └── InvisibleOverlayPanel  → borderless module panel (Context)
+  └── InvisibleOverlayPanel  → borderless module panel (addons, settings, etc.)
   └── InvisibleContextMenu   → right-click menu (replaces native tk.Menu)
   └── InvisibleModelDropdown → selector dropdown
 ```
