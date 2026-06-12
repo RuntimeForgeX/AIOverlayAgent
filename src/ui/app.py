@@ -43,6 +43,7 @@ from src.utils.win32_invisibility import (
     apply_capture_exclusion,
     apply_invisibility_to_tkinter_window,
     apply_overlay_window_config,
+    apply_click_through,
     get_tkinter_hwnd,
     get_window_handle,
     find_window_by_class,
@@ -50,8 +51,10 @@ from src.utils.win32_invisibility import (
     make_window_invisible_to_capture,
     present_overlay_window,
     assign_ephemeral_window_title,
-    InvisibleContextMenu,
-    InvisibleModelDropdown,
+    move_overlay,
+    reset_overlay_position,
+    get_foreground_window,
+    set_foreground_window,
     InvisibleTopLevel,
 )
 from src.config.models import (
@@ -63,17 +66,28 @@ from src.config.models import (
 from src.services.llm_provider import get_provider, HumanMessage, AIMessage
 from src.ui.markdown.renderer import configure_markdown_tags, render_markdown, clean_bmp
 from src.ui.cursor import refresh_cursor_policy
-from src.ui.close_button import create_header_close_button
+from src.ui.shortcut_manager import ShortcutManager
+
 # ============================================================================
-# MAIN APPLICATION
+# MAIN APPLICATION — KEYBOARD-ONLY HUD
 # ============================================================================
 
 class OverlayApp:
-    """Main AI Overlay Application."""
-    
+    """Main AI Overlay Application — keyboard-only, non-interactive HUD.
+
+    The overlay is purely visual. All interaction happens through global
+    keyboard shortcuts. Mouse events pass through to the application
+    underneath via WS_EX_TRANSPARENT.
+    """
+
     THEME_ICONS = {"dark": "🌙", "light": "☀", "system": "🖥"}
     THEME_CYCLE = ["dark", "light", "system"]
     MAX_QUEUE = 10
+
+    # Pixels per arrow-key press for overlay movement
+    MOVE_STEP = 50
+    # Lines per scroll step for conversation navigation
+    SCROLL_STEP = 3
 
     def __init__(self, root, config):
         self.root = root
@@ -88,12 +102,16 @@ class OverlayApp:
         self.window_hwnd = None
         self.window_opacity = 0.94
         self.window_invisible = False
-        self._hotkeys_registered = False
-        self._hotkey_removers = []
         self.display_log = []
         self.screenshot_queue = []  # list of {"b64": str, "photo": PhotoImage}
         self._loading_history = False
-        self._quick_buttons = []
+
+        # Input mode state
+        self._input_mode_active = False
+        self._previous_foreground_hwnd = 0
+
+        # Cancellation flag for stopping AI generation
+        self._cancelled = False
 
         # Load theme preference and apply
         theme_pref = load_theme_preference()
@@ -122,14 +140,90 @@ class OverlayApp:
         # Load persisted screenshot queue
         self._load_screenshot_queue_from_disk()
 
-        # Register hotkeys after the Win32 window exists
-        self.root.after(200, self.register_hotkeys)
+        # Create and activate the centralized shortcut manager
+        self.shortcut_manager = ShortcutManager(root, config)
+        self._register_all_shortcuts()
+        self.root.after(200, self._activate_shortcuts)
+
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
         # Re-apply capture exclusion after the window is fully realized in mainloop
         self.setup_invisibility_maintenance()
 
-        print("AI Overlay Agent started")
+        print("AI Overlay Agent started (keyboard-only HUD mode)")
+
+    # ------------------------------------------------------------------
+    # Shortcut registration
+    # ------------------------------------------------------------------
+
+    def _register_all_shortcuts(self):
+        """Register every shortcut through the centralized ShortcutManager."""
+        sm = self.shortcut_manager
+        rc = sm.register_from_config
+
+        # Existing shortcuts
+        rc("toggle", "toggle", "ctrl+shift+space",
+           self.hotkey_toggle, "Show/hide overlay")
+        rc("capture", "capture", "ctrl+shift+s",
+           self.hotkey_capture, "Capture screen")
+        rc("clear", "clear", "ctrl+shift+c",
+           self.hotkey_clear, "Clear conversation")
+        rc("focus", "focus", "ctrl+shift+i",
+           self.hotkey_enter_input_mode, "Enter text input mode")
+        rc("export", "export", "ctrl+shift+e",
+           self.hotkey_export, "Export chat to Markdown")
+
+        # Conversation navigation
+        rc("scroll_up", "scroll_up", "ctrl+shift+up",
+           self.scroll_chat_up, "Scroll conversation up")
+        rc("scroll_down", "scroll_down", "ctrl+shift+down",
+           self.scroll_chat_down, "Scroll conversation down")
+        rc("jump_prev_ai", "jump_prev_ai", "ctrl+shift+pageup",
+           self.jump_to_prev_ai_message, "Jump to previous AI message")
+        rc("jump_next_ai", "jump_next_ai", "ctrl+shift+pagedown",
+           self.jump_to_next_ai_message, "Jump to next AI message")
+        rc("jump_top", "jump_top", "ctrl+shift+home",
+           self.jump_to_top, "Jump to top")
+        rc("jump_latest", "jump_latest", "ctrl+shift+end",
+           self.jump_to_latest, "Jump to latest message")
+
+        # Message actions
+        rc("send", "send", "ctrl+shift+enter",
+           self.hotkey_send_message, "Send current input")
+        rc("regenerate", "regenerate", "ctrl+shift+r",
+           self.regenerate_last, "Regenerate last response")
+        rc("stop", "stop", "ctrl+shift+x",
+           self.stop_generation, "Stop AI generation")
+        rc("copy_last", "copy_last", "ctrl+shift+k",
+           self.copy_last_ai_response, "Copy last AI response")
+        rc("toggle_mode", "toggle_mode", "ctrl+shift+m",
+           self.toggle_prompt_profile, "Toggle conversation mode")
+
+        # Window controls
+        rc("move_left", "move_left", "ctrl+shift+left",
+           lambda: self._move_overlay(-self.MOVE_STEP, 0), "Move overlay left")
+        rc("move_right", "move_right", "ctrl+shift+right",
+           lambda: self._move_overlay(self.MOVE_STEP, 0), "Move overlay right")
+        rc("move_up", "move_up", "ctrl+shift+alt+up",
+           lambda: self._move_overlay(0, -self.MOVE_STEP), "Move overlay up")
+        rc("move_down", "move_down", "ctrl+shift+alt+down",
+           lambda: self._move_overlay(0, self.MOVE_STEP), "Move overlay down")
+        rc("reset_position", "reset_position", "ctrl+shift+0",
+           self._reset_overlay_position, "Reset overlay position")
+
+    def _activate_shortcuts(self):
+        """Activate all registered shortcuts (called after window is realized)."""
+        failed = self.shortcut_manager.activate_all()
+        if failed:
+            self.add_system_message(
+                "[WARN] Could not register hotkeys: " + ", ".join(failed)
+            )
+        elif not self.shortcut_manager.is_active:
+            self.status_label.config(text="ready · hotkeys unavailable")
+
+    # ------------------------------------------------------------------
+    # Invisibility maintenance
+    # ------------------------------------------------------------------
 
     def setup_invisibility_maintenance(self):
         """Keep capture exclusion active (required for Meet/OBS after window is shown)."""
@@ -138,13 +232,6 @@ class OverlayApp:
         self.root.after(100, self.apply_main_window_invisibility)
         self.root.after(500, self.apply_main_window_invisibility)
         self.root.after(1500, self._start_invisibility_polling)
-
-        for event in ("<Map>", "<FocusIn>"):
-            self.root.bind(
-                event,
-                lambda e: self.apply_main_window_invisibility(),
-                add="+",
-            )
 
     def _start_invisibility_polling(self):
         """Periodic re-polling at 5-second intervals.
@@ -158,25 +245,24 @@ class OverlayApp:
         self.root.after(5000, self._start_invisibility_polling)
 
     def setup_window(self):
-        """Setup tkinter window with proper invisibility configuration."""
+        """Setup tkinter window as a click-through, non-interactive HUD."""
         width = int(get_config_value(self.config, "UI", "width", "500"))
         height = int(get_config_value(self.config, "UI", "height", "650"))
         start_x = int(get_config_value(self.config, "UI", "start_x", "60"))
         start_y = int(get_config_value(self.config, "UI", "start_y", "60"))
         opacity = float(get_config_value(self.config, "UI", "opacity", "0.94"))
-        
+
         self.root.geometry(f"{width}x{height}+{start_x}+{start_y}")
         # Randomize the OS window title: the visible UI header is the "real" title.
         assign_ephemeral_window_title(self.root, hint="overlay")
         self.root.configure(bg=COLORS["bg_main"])
-        apply_overlay_window_config(self.root, opacity=opacity)
+        # Apply overlay config WITH click-through enabled
+        apply_overlay_window_config(self.root, opacity=opacity, click_through=True)
         self.root.resizable(False, False)
-        
+
         self.window_opacity = opacity
 
-        self.setup_drag()
         self.build_ui()
-        refresh_cursor_policy(self.root)
         self.apply_main_window_invisibility()
 
     def apply_main_window_invisibility(self, verbose=False):
@@ -187,6 +273,9 @@ class OverlayApp:
         hide_window_from_taskbar(self.root)
         success = apply_capture_exclusion(self.root, title=None, verbose=verbose)
         self.window_invisible = success
+
+        # Re-apply click-through after every invisibility pass
+        apply_click_through(self.root)
 
         hwnd = get_tkinter_hwnd(self.root)
         if hwnd:
@@ -210,32 +299,14 @@ class OverlayApp:
                     self.window_invisible = True
         except Exception:
             pass
-    
-    def setup_drag(self):
-        """Make window draggable by header bar."""
-        self.drag_data = {"x": 0, "y": 0}
-        
-        def start_drag(event):
-            self.drag_data["x"] = event.x
-            self.drag_data["y"] = event.y
-        
-        def drag_motion(event):
-            delta_x = event.x - self.drag_data["x"]
-            delta_y = event.y - self.drag_data["y"]
-            x = self.root.winfo_x() + delta_x
-            y = self.root.winfo_y() + delta_y
-            self.root.geometry(f"+{x}+{y}")
-        
-        self.root.bind("<Button-1>", start_drag, add="+")
-        self.root.bind("<B1-Motion>", drag_motion, add="+")
-    
+
     def build_ui(self):
-        """Build the UI layout."""
+        """Build the HUD layout — display-only, no interactive elements."""
         # Header frame
         self.header_frame = tk.Frame(self.root, bg=COLORS["bg_header"], height=40)
         self.header_frame.pack(fill=tk.X, padx=0, pady=0)
         self.header_frame.pack_propagate(False)
-        
+
         # Title and dot
         self.title_label = tk.Label(
             self.header_frame, text="● AI OVERLAY",
@@ -243,67 +314,41 @@ class OverlayApp:
             font=("Courier New", 10, "bold")
         )
         self.title_label.pack(side=tk.LEFT, padx=10, pady=8)
-        
-        # Model selector dropdown (OpenRouter + direct APIs)
-        models = model_labels()
-        self.model_var = tk.StringVar(value=resolve_model_label(self.config))
-        self.model_dropdown = InvisibleModelDropdown(
-            self.header_frame,
-            self.model_var,
-            models,
-            command=self.change_model,
-            bg=COLORS["bg_header"],
-            fg=COLORS["accent_green"],
-            font=("Courier New", 8),
-            relief=tk.FLAT,
-            activebackground=COLORS["bg_input"],
-            activeforeground=COLORS["accent_green"],
-            highlightthickness=0,
-            bd=0,
-        )
-        self.model_dropdown.pack(side=tk.RIGHT, padx=5, pady=8)
 
-        prompt_titles = [p["title"] for p in self.prompt_profiles]
+        # Model label (display-only, no dropdown interaction)
+        self.model_var = tk.StringVar(value=resolve_model_label(self.config))
+        self.model_label = tk.Label(
+            self.header_frame,
+            textvariable=self.model_var,
+            fg=COLORS["accent_green"], bg=COLORS["bg_header"],
+            font=("Courier New", 8),
+        )
+        self.model_label.pack(side=tk.RIGHT, padx=5, pady=8)
+
+        # Prompt profile label (display-only)
         initial_prompt_title = get_prompt_by_id(self.selected_prompt_id)["title"]
         self.prompt_var = tk.StringVar(value=initial_prompt_title)
-        self.prompt_dropdown = InvisibleModelDropdown(
+        self.prompt_label = tk.Label(
             self.header_frame,
-            self.prompt_var,
-            prompt_titles,
-            command=self.change_prompt_profile,
-            bg=COLORS["bg_header"],
-            fg=COLORS["accent_blue"],
+            textvariable=self.prompt_var,
+            fg=COLORS["accent_blue"], bg=COLORS["bg_header"],
             font=("Courier New", 8),
-            relief=tk.FLAT,
-            activebackground=COLORS["bg_input"],
-            activeforeground=COLORS["accent_blue"],
-            highlightthickness=0,
-            bd=0,
         )
-        self.prompt_dropdown.pack(side=tk.RIGHT, padx=5, pady=8)
-        
-        # Opacity slider (placeholder for now)
-        self.opacity_label = tk.Label(
-            self.header_frame, text="[opacity]",
+        self.prompt_label.pack(side=tk.RIGHT, padx=5, pady=8)
+
+        # Mode indicator
+        self.mode_indicator = tk.Label(
+            self.header_frame,
+            text="[HUD]",
             fg=COLORS["text_dim"], bg=COLORS["bg_header"],
             font=("Courier New", 8)
         )
-        self.opacity_label.pack(side=tk.RIGHT, padx=5, pady=8)
-
-        # Theme toggle button
-        theme_icon = self.THEME_ICONS.get(_current_theme_name, "🌙")
-        self.theme_btn = tk.Label(
-            self.header_frame, text=theme_icon,
-            fg=COLORS["text_dim"], bg=COLORS["bg_header"],
-            font=("Courier New", 10),
-        )
-        self.theme_btn.pack(side=tk.RIGHT, padx=5, pady=8)
-        self.theme_btn.bind("<Button-1>", lambda e: self._cycle_theme())
+        self.mode_indicator.pack(side=tk.RIGHT, padx=5, pady=8)
 
         # Chat history panel
         self.chat_frame = tk.Frame(self.root, bg=COLORS["bg_chat"])
         self.chat_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-        
+
         self.chat_display = scrolledtext.ScrolledText(
             self.chat_frame,
             bg=COLORS["bg_chat"],
@@ -315,11 +360,18 @@ class OverlayApp:
             highlightthickness=0
         )
         self.chat_display.pack(fill=tk.BOTH, expand=True)
-        
+
+        # Disable scrollbar mouse interaction (display-only)
+        try:
+            scrollbar = self.chat_display.vbar
+            scrollbar.configure(command=lambda *a: None)
+        except Exception:
+            pass
+
         # Configure text tags
         self._configure_chat_tags()
 
-        # Thumbnail strip (hidden by default)
+        # Thumbnail strip (hidden by default, display-only)
         self.thumb_strip_frame = tk.Frame(self.root, bg=COLORS["bg_input"])
         # Do not pack yet — shown when screenshots are queued
 
@@ -339,17 +391,10 @@ class OverlayApp:
 
         self.thumb_inner_frame.bind("<Configure>", _on_thumb_frame_configure)
 
-        # Horizontal mousewheel scrolling on thumbnail strip
-        def _on_thumb_mousewheel(event):
-            self.thumb_canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        self.thumb_canvas.bind("<MouseWheel>", _on_thumb_mousewheel)
-        self.thumb_inner_frame.bind("<MouseWheel>", _on_thumb_mousewheel)
-
-        # Input frame
+        # Input frame (hidden by default — shown only in input mode)
         self.input_frame = tk.Frame(self.root, bg=COLORS["bg_input"])
-        self.input_frame.pack(fill=tk.X, padx=8, pady=8)
-        
+        # NOT packed — only shown when entering input mode
+
         self.input_box = tk.Entry(
             self.input_frame,
             bg=COLORS["bg_input"],
@@ -359,45 +404,32 @@ class OverlayApp:
             insertbackground=COLORS["accent_green"]
         )
         self.input_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-        self.input_box.bind("<Return>", lambda e: self.send_message())
-        
-        self.send_button = tk.Button(
+
+        # Input mode label
+        self.input_mode_label = tk.Label(
             self.input_frame,
-            text="⏎",
-            bg=COLORS["accent_green"],
-            fg=COLORS["bg_main"],
-            font=("Courier New", 10, "bold"),
-            relief=tk.FLAT,
-            width=3,
-            command=self.send_message
+            text="[INPUT]",
+            fg=COLORS["accent_green"],
+            bg=COLORS["bg_input"],
+            font=("Courier New", 8, "bold"),
         )
-        self.send_button.pack(side=tk.LEFT, padx=2, pady=5)
-        
-        # Quick buttons frame
-        self.buttons_frame = tk.Frame(self.root, bg=COLORS["bg_main"])
-        self.buttons_frame.pack(fill=tk.X, padx=8, pady=4)
-        
-        self._quick_buttons = []
-        btn_defs = [
-            ("📷 Capture", self.hotkey_capture),
-            ("🗑 Clear", self.hotkey_clear),
-            ("💾 Export", self.hotkey_export),
-            ("✕ Close", self._on_window_close),
-        ]
-        for text, cmd in btn_defs:
-            is_close = text == "✕ Close"
-            btn = tk.Button(
-                self.buttons_frame,
-                text=text,
-                bg=COLORS["bg_header"],
-                fg=COLORS["error_red"] if is_close else COLORS["text_normal"],
-                font=("Courier New", 8, "bold") if is_close else ("Courier New", 8),
-                relief=tk.FLAT,
-                command=cmd,
-            )
-            btn.pack(side=tk.LEFT, padx=2)
-            self._quick_buttons.append(btn)
-        
+        self.input_mode_label.pack(side=tk.RIGHT, padx=5, pady=5)
+
+        # Shortcut hint bar (always visible at bottom)
+        self.hint_frame = tk.Frame(self.root, bg=COLORS["bg_main"])
+        self.hint_frame.pack(fill=tk.X, padx=8, pady=2)
+
+        hint_text = "I:input  S:capture  C:clear  E:export  ↑↓:scroll  Space:toggle"
+        self.hint_label = tk.Label(
+            self.hint_frame,
+            text=hint_text,
+            bg=COLORS["bg_main"],
+            fg=COLORS["text_dim"],
+            font=("Courier New", 7),
+            anchor="w",
+        )
+        self.hint_label.pack(fill=tk.X)
+
         # Status bar
         self.status_frame = tk.Frame(self.root, bg=COLORS["border"], height=1)
         self.status_frame.pack(fill=tk.X)
@@ -432,9 +464,9 @@ class OverlayApp:
                                      font=("Courier New", 9, "italic"))
 
         configure_markdown_tags(self.chat_display, c)
-    
+
     # ------------------------------------------------------------------
-    # Thumbnail / screenshot queue
+    # Thumbnail / screenshot queue (display-only, no mouse interaction)
     # ------------------------------------------------------------------
 
     def _create_thumbnail_photo(self, b64_image, size=(60, 45)):
@@ -462,77 +494,8 @@ class OverlayApp:
         self._rebuild_thumbnail_strip()
         self._save_screenshot_queue()
 
-    def _remove_screenshot(self, idx):
-        """Remove a screenshot from the queue."""
-        if 0 <= idx < len(self.screenshot_queue):
-            self.screenshot_queue.pop(idx)
-            self._rebuild_thumbnail_strip()
-            self._save_screenshot_queue()
-            n = len(self.screenshot_queue)
-            self.status_label.config(
-                text=f"screenshot removed · {n} pending" if n else "ready"
-            )
-
-    def _move_screenshot(self, idx, direction):
-        """Move a screenshot left (-1) or right (+1) in the queue."""
-        new_idx = idx + direction
-        if 0 <= new_idx < len(self.screenshot_queue):
-            self.screenshot_queue[idx], self.screenshot_queue[new_idx] = \
-                self.screenshot_queue[new_idx], self.screenshot_queue[idx]
-            self._rebuild_thumbnail_strip()
-            self._save_screenshot_queue()
-
-    def _preview_screenshot(self, idx):
-        """Open a full-size preview of a queued screenshot."""
-        if idx >= len(self.screenshot_queue):
-            return
-        b64 = self.screenshot_queue[idx]["b64"]
-        try:
-            image_bytes = base64.b64decode(b64)
-            image = Image.open(io.BytesIO(image_bytes))
-            image.thumbnail((800, 600), Image.Resampling.LANCZOS)
-
-            preview = InvisibleTopLevel(self.root)
-            preview.title("Screenshot Preview")
-            preview.geometry(f"{image.width}x{image.height + 50}")
-            preview.configure(bg=COLORS["bg_main"])
-
-            preview_header = tk.Frame(preview, bg=COLORS["bg_header"])
-            preview_header.pack(fill=tk.X)
-            tk.Label(
-                preview_header,
-                text="Screenshot Preview",
-                fg=COLORS["accent_green"],
-                bg=COLORS["bg_header"],
-                font=("Courier New", 10, "bold"),
-            ).pack(side=tk.LEFT, padx=10, pady=6)
-            create_header_close_button(
-                preview_header, preview.destroy,
-            ).pack(side=tk.RIGHT, padx=(4, 8), pady=4)
-
-            photo = ImageTk.PhotoImage(image)
-            lbl = tk.Label(preview, image=photo, bg=COLORS["bg_main"])
-            lbl.image = photo
-            lbl.pack(padx=5, pady=5)
-
-            preview.show()
-        except Exception:
-            self.add_system_message("[WARN] Could not preview screenshot")
-
-    def _show_thumb_context_menu(self, event, idx):
-        """Show right-click context menu for a thumbnail (capture-excluded)."""
-        items = [("Preview", lambda: self._preview_screenshot(idx), True)]
-        if idx > 0:
-            items.append(("◀ Move Left", lambda: self._move_screenshot(idx, -1), True))
-        if idx < len(self.screenshot_queue) - 1:
-            items.append(("Move Right ▶", lambda: self._move_screenshot(idx, 1), True))
-        items.append(("─" * 24, lambda: None, False))
-        items.append(("✕ Remove", lambda: self._remove_screenshot(idx), True))
-        menu = InvisibleContextMenu(self.root, items)
-        menu.open_at(event.x_root, event.y_root)
-
     def _rebuild_thumbnail_strip(self):
-        """Rebuild the thumbnail strip from the screenshot queue."""
+        """Rebuild the thumbnail strip from the screenshot queue (display-only)."""
         for widget in self.thumb_inner_frame.winfo_children():
             widget.destroy()
 
@@ -553,26 +516,20 @@ class OverlayApp:
             img_label.image = entry["photo"]
             img_label.pack(side=tk.LEFT, padx=2, pady=2)
 
-            remove_lbl = tk.Label(
-                container, text="×", fg=COLORS["remove_btn_fg"],
-                bg=COLORS["thumb_bg"], font=("Courier New", 9, "bold"),
+            # Index label (for reference — no interactive controls)
+            idx_label = tk.Label(
+                container, text=f"#{i+1}",
+                fg=COLORS["text_dim"], bg=COLORS["thumb_bg"],
+                font=("Courier New", 7),
             )
-            remove_lbl.pack(side=tk.LEFT, padx=(0, 3))
-            remove_lbl.bind("<Button-1>", lambda e, idx=i: self._remove_screenshot(idx))
-
-            # Double-click to preview, right-click for context menu
-            img_label.bind("<Double-Button-1>", lambda e, idx=i: self._preview_screenshot(idx))
-            img_label.bind("<Button-3>", lambda e, idx=i: self._show_thumb_context_menu(e, idx))
-            container.bind("<Button-3>", lambda e, idx=i: self._show_thumb_context_menu(e, idx))
+            idx_label.pack(side=tk.LEFT, padx=(0, 3))
 
         if self.screenshot_queue:
-            # Pack the strip above the input frame
+            # Pack the strip above the input frame / hint frame
             self.thumb_strip_frame.pack(fill=tk.X, padx=8, pady=(0, 4),
-                                        before=self.input_frame)
+                                        before=self.hint_frame)
         else:
             self.thumb_strip_frame.pack_forget()
-
-        refresh_cursor_policy(self.thumb_strip_frame)
 
     # ------------------------------------------------------------------
     # Persistence helpers
@@ -595,14 +552,14 @@ class OverlayApp:
             text = entry.get("text", "")
             is_system = entry.get("is_system", False) or role == "system"
             self.add_message_to_display(role, text, is_system=is_system)
-            
+
             # Reconstruct LLM provider conversation history for active context
             if not is_system and self.provider and text.strip():
                 if role == "you":
                     self.provider.add_text_message(text)
                 elif role == "ai":
                     self.provider.add_assistant_message(text)
-                    
+
         self.display_log = list(history)
         self._loading_history = False
 
@@ -634,7 +591,6 @@ class OverlayApp:
         next_theme = self.THEME_CYCLE[(idx + 1) % len(self.THEME_CYCLE)]
         set_active_theme(next_theme)
         save_theme_preference(next_theme)
-        self.theme_btn.config(text=self.THEME_ICONS.get(next_theme, "🌙"))
         self._apply_theme()
         self.add_system_message(f"theme → {next_theme}")
 
@@ -648,22 +604,9 @@ class OverlayApp:
         # Header
         self.header_frame.configure(bg=c["bg_header"])
         self.title_label.configure(fg=c["accent_green"], bg=c["bg_header"])
-        self.theme_btn.configure(fg=c["text_dim"], bg=c["bg_header"])
-        self.opacity_label.configure(fg=c["text_dim"], bg=c["bg_header"])
-
-        # Model dropdown
-        self.model_dropdown.configure(bg=c["bg_header"])
-        self.model_dropdown.button.configure(
-            bg=c["bg_header"], fg=c["accent_green"],
-            activebackground=c["bg_input"], activeforeground=c["accent_green"],
-        )
-
-        # Prompt profile dropdown
-        self.prompt_dropdown.configure(bg=c["bg_header"])
-        self.prompt_dropdown.button.configure(
-            bg=c["bg_header"], fg=c["accent_blue"],
-            activebackground=c["bg_input"], activeforeground=c["accent_blue"],
-        )
+        self.model_label.configure(fg=c["accent_green"], bg=c["bg_header"])
+        self.prompt_label.configure(fg=c["accent_blue"], bg=c["bg_header"])
+        self.mode_indicator.configure(fg=c["text_dim"], bg=c["bg_header"])
 
         # Chat
         self.chat_frame.configure(bg=c["bg_chat"])
@@ -681,15 +624,11 @@ class OverlayApp:
             bg=c["bg_input"], fg=c["text_normal"],
             insertbackground=c["accent_green"],
         )
-        self.send_button.configure(bg=c["accent_green"], fg=c["bg_main"])
+        self.input_mode_label.configure(fg=c["accent_green"], bg=c["bg_input"])
 
-        # Quick buttons
-        self.buttons_frame.configure(bg=c["bg_main"])
-        for btn in self._quick_buttons:
-            if btn.cget("text") == "✕ Close":
-                btn.configure(bg=c["bg_header"], fg=c["error_red"])
-            else:
-                btn.configure(bg=c["bg_header"], fg=c["text_normal"])
+        # Hint bar
+        self.hint_frame.configure(bg=c["bg_main"])
+        self.hint_label.configure(bg=c["bg_main"], fg=c["text_dim"])
 
         # Footer / status
         self.status_frame.configure(bg=c["border"])
@@ -698,7 +637,6 @@ class OverlayApp:
 
         # Rebuild thumbnails with new colors
         self._rebuild_thumbnail_strip()
-        refresh_cursor_policy(self.root)
 
     # ------------------------------------------------------------------
     # Chat display
@@ -707,27 +645,27 @@ class OverlayApp:
     def add_message_to_display(self, role, text, is_system=False):
         """Add a message to the chat display with markdown rendering for AI."""
         self.chat_display.config(state=tk.NORMAL)
-        
+
         timestamp = datetime.now().strftime("%H:%M")
-        
+
         if is_system:
             self.chat_display.insert(tk.END, f"\n{clean_bmp(text)}\n", "system")
         else:
             if role == "you":
                 self.chat_display.insert(tk.END, f"\n{timestamp}  ", "timestamp")
                 self.chat_display.insert(tk.END, "▶ you\n", "you_label")
-                
+
                 # Handle screenshot indicator
                 if "[📷" in text or "[Screenshot]" in text:
                     self.chat_display.insert(tk.END, clean_bmp(text) + "\n", "screenshot_tag")
                 else:
                     self.chat_display.insert(tk.END, clean_bmp(text) + "\n", "text_normal")
-            
+
             else:  # AI response — full markdown rendering
                 self.chat_display.insert(tk.END, f"\n{timestamp}  ", "timestamp")
                 self.chat_display.insert(tk.END, "◆ ai\n", "ai_label")
                 render_markdown(self.chat_display, text, COLORS)
-        
+
         self.chat_display.see(tk.END)
         self.chat_display.config(state=tk.DISABLED)
 
@@ -739,32 +677,171 @@ class OverlayApp:
                 "is_system": is_system,
             })
             self._save_display_log()
-    
+
     def add_system_message(self, text):
         """Add a system message."""
         self.add_message_to_display("system", text, is_system=True)
 
     # ------------------------------------------------------------------
+    # Conversation navigation (keyboard-only)
+    # ------------------------------------------------------------------
+
+    def scroll_chat_up(self):
+        """Scroll conversation up by SCROLL_STEP lines."""
+        self.chat_display.yview_scroll(-self.SCROLL_STEP, "units")
+
+    def scroll_chat_down(self):
+        """Scroll conversation down by SCROLL_STEP lines."""
+        self.chat_display.yview_scroll(self.SCROLL_STEP, "units")
+
+    def jump_to_top(self):
+        """Jump to the top of the conversation."""
+        self.chat_display.see("1.0")
+
+    def jump_to_latest(self):
+        """Jump to the latest (bottom) message."""
+        self.chat_display.see(tk.END)
+
+    def jump_to_prev_ai_message(self):
+        """Jump to the previous AI message in the conversation."""
+        try:
+            # Get current view position
+            current_pos = self.chat_display.index("@0,0")
+            # Search backwards for "ai_label" tag
+            result = self.chat_display.tag_prevrange("ai_label", current_pos)
+            if result:
+                self.chat_display.see(result[0])
+            else:
+                # Wrap to the last ai_label
+                result = self.chat_display.tag_prevrange("ai_label", tk.END)
+                if result:
+                    self.chat_display.see(result[0])
+        except tk.TclError:
+            pass
+
+    def jump_to_next_ai_message(self):
+        """Jump to the next AI message in the conversation."""
+        try:
+            # Get current view bottom position
+            current_pos = self.chat_display.index("@0,0")
+            # Search forward for "ai_label" tag after current view
+            result = self.chat_display.tag_nextrange("ai_label", current_pos + "+1c")
+            if result:
+                self.chat_display.see(result[0])
+            else:
+                # Wrap to the first ai_label
+                result = self.chat_display.tag_nextrange("ai_label", "1.0")
+                if result:
+                    self.chat_display.see(result[0])
+        except tk.TclError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Input mode (keyboard-only)
+    # ------------------------------------------------------------------
+
+    def hotkey_enter_input_mode(self):
+        """Enter text input mode (Ctrl+Shift+I)."""
+        if self._input_mode_active:
+            return
+
+        if not self.is_visible:
+            present_overlay_window(self.root)
+            self.is_visible = True
+
+        # Save the currently focused application's window
+        self._previous_foreground_hwnd = get_foreground_window()
+
+        self._input_mode_active = True
+        self.mode_indicator.config(text="[INPUT]", fg=COLORS["accent_green"])
+
+        # Show and pack the input frame
+        self.input_frame.pack(fill=tk.X, padx=8, pady=8, before=self.hint_frame)
+
+        # Temporarily remove click-through so the input box can receive focus
+        self._disable_click_through_for_input()
+
+        self.input_box.focus_force()
+
+        # Bind ESC to exit input mode (local binding on input box)
+        self.input_box.bind("<Escape>", lambda e: self._exit_input_mode())
+
+        self.status_label.config(text="input mode · type message, Ctrl+Shift+Enter to send, ESC to cancel")
+
+    def _exit_input_mode(self):
+        """Exit text input mode and restore focus to the previous application."""
+        if not self._input_mode_active:
+            return
+
+        self._input_mode_active = False
+        self.mode_indicator.config(text="[HUD]", fg=COLORS["text_dim"])
+
+        # Hide the input frame
+        self.input_frame.pack_forget()
+
+        # Unbind ESC
+        self.input_box.unbind("<Escape>")
+
+        # Re-apply click-through
+        apply_click_through(self.root)
+
+        # Restore focus to the previously active application
+        if self._previous_foreground_hwnd:
+            set_foreground_window(self._previous_foreground_hwnd)
+            self._previous_foreground_hwnd = 0
+
+        self.status_label.config(
+            text=f"ready · {self.total_input_tokens} in / {self.total_output_tokens} out tokens"
+        )
+
+    def _disable_click_through_for_input(self):
+        """Temporarily remove WS_EX_TRANSPARENT so the input box can receive keyboard focus."""
+        try:
+            from src.utils.win32_invisibility import (
+                get_tkinter_hwnd, _get_window_exstyle, _set_window_exstyle,
+                WS_EX_TRANSPARENT,
+            )
+            self.root.update_idletasks()
+            try:
+                hwnd = int(self.root.wm_frame(), 16)
+            except Exception:
+                hwnd = get_tkinter_hwnd(self.root)
+                
+            if hwnd:
+                style = _get_window_exstyle(hwnd)
+                # Remove ONLY the transparent flag; keep layered, topmost, etc.
+                new_style = style & ~WS_EX_TRANSPARENT
+                _set_window_exstyle(hwnd, new_style)
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
     # Send / receive
     # ------------------------------------------------------------------
-    
+
+    def hotkey_send_message(self):
+        """Send current input (Ctrl+Shift+Enter) and exit input mode."""
+        self.send_message()
+        # Exit input mode after sending
+        self._exit_input_mode()
+
     def send_message(self):
         """Send a text message (optionally with queued screenshots) to the AI."""
         if not self.provider:
             return
-        
+
         if self.is_sending:
             return
-        
+
         message_text = self.input_box.get().strip()
         has_screenshots = len(self.screenshot_queue) > 0
 
         if not message_text and not has_screenshots:
             return
-        
+
         self.input_box.delete(0, tk.END)
         self.is_sending = True
-        self.send_button.config(state=tk.DISABLED)
+        self._cancelled = False
         self.message_count += 1
 
         # Build display text (screenshot-only sends no default caption)
@@ -774,10 +851,10 @@ class OverlayApp:
             display_text = f"{prefix} {message_text}".strip() if message_text else prefix
         else:
             display_text = message_text
-        
+
         self.add_message_to_display("you", display_text)
         self.status_label.config(text="thinking...")
-        
+
         # Build API message content — only user-typed text (may be empty with screenshots)
         if has_screenshots:
             images = [entry["b64"] for entry in self.screenshot_queue]
@@ -794,7 +871,7 @@ class OverlayApp:
             self._save_screenshot_queue()
         else:
             message_content = message_text
-        
+
         # Send in background thread (default path)
         def api_call():
             try:
@@ -805,43 +882,213 @@ class OverlayApp:
                 )
             except Exception as e:
                 self.on_api_error(str(e))
-        
+
         thread = threading.Thread(target=api_call, daemon=True)
         thread.start()
-    
+
     def on_api_response(self, response_text, tokens):
         """Handle successful API response."""
+        # Check cancellation flag
+        if self._cancelled:
+            self._cancelled = False
+            self.root.after(0, lambda: self._update_ui_after_cancel())
+            return
+
         self.total_input_tokens += tokens["input"]
         self.total_output_tokens += tokens["output"]
-        
+
         self.root.after(0, lambda: self._update_ui_after_response(response_text))
-    
+
     def _update_ui_after_response(self, response_text):
         """Update UI after API response (must be called from main thread)."""
         self.add_message_to_display("ai", response_text)
         self.is_sending = False
-        self.send_button.config(state=tk.NORMAL)
-        self.input_box.focus()
         self.status_label.config(
             text=f"ready · {self.total_input_tokens} in / {self.total_output_tokens} out tokens"
         )
-    
+
+    def _update_ui_after_cancel(self):
+        """Update UI after a cancelled generation."""
+        self.add_system_message("[cancelled] response discarded")
+        self.is_sending = False
+        self.status_label.config(
+            text=f"ready · {self.total_input_tokens} in / {self.total_output_tokens} out tokens"
+        )
+
     def on_api_error(self, error_text):
         """Handle API error."""
         self.root.after(0, lambda: self._update_ui_after_error(error_text))
-    
+
     def _update_ui_after_error(self, error_text):
         """Update UI after API error (must be called from main thread)."""
         self.add_message_to_display("system", f"[WARN] Error: {error_text}", is_system=True)
         self.is_sending = False
-        self.send_button.config(state=tk.NORMAL)
-        self.input_box.focus()
         self.status_label.config(text="error · check message above")
 
     # ------------------------------------------------------------------
-    # Hotkeys
+    # Message actions (keyboard-only)
     # ------------------------------------------------------------------
-    
+
+    def regenerate_last(self):
+        """Regenerate last AI response (Ctrl+Shift+R).
+
+        Pops the last AI message from history and re-sends the last user message.
+        """
+        if self.is_sending:
+            self.add_system_message("[WARN] Cannot regenerate while AI is thinking")
+            return
+
+        if not self.provider or not self.provider.conversation_history:
+            self.add_system_message("[WARN] No conversation to regenerate")
+            return
+
+        # Find and remove the last AI message
+        history = self.provider.conversation_history
+        last_ai_idx = None
+        for i in range(len(history) - 1, -1, -1):
+            if isinstance(history[i], AIMessage):
+                last_ai_idx = i
+                break
+
+        if last_ai_idx is None:
+            self.add_system_message("[WARN] No AI response to regenerate")
+            return
+
+        # Find the last user message before the AI response
+        last_user_msg = None
+        for i in range(last_ai_idx - 1, -1, -1):
+            if isinstance(history[i], HumanMessage):
+                last_user_msg = history[i]
+                break
+
+        if last_user_msg is None:
+            self.add_system_message("[WARN] No user message found to re-send")
+            return
+
+        # Remove the last AI message from history
+        history.pop(last_ai_idx)
+
+        # Remove the last AI message from display log
+        for i in range(len(self.display_log) - 1, -1, -1):
+            if self.display_log[i].get("role") == "ai" and not self.display_log[i].get("is_system"):
+                self.display_log.pop(i)
+                break
+        self._save_display_log()
+
+        self.add_system_message("[regenerating last response...]")
+        self.is_sending = True
+        self._cancelled = False
+        self.status_label.config(text="regenerating...")
+
+        # Re-send the last user content
+        def api_call():
+            try:
+                # The user message is already in history, just invoke the API
+                from src.services.llm_provider import SystemMessage
+                messages = [SystemMessage(content=self.provider.system_prompt)] + self.provider.conversation_history
+                response = self.provider.llm.invoke(messages)
+                reply = getattr(response, "content", "")
+                if reply is None:
+                    reply = ""
+                elif isinstance(reply, list):
+                    reply = "".join(
+                        block.get("text", "") if isinstance(block, dict) else str(block)
+                        for block in reply
+                    )
+                else:
+                    reply = str(reply)
+
+                if not reply.strip():
+                    reply = "[Empty response returned by the model.]"
+
+                self.provider.add_assistant_message(reply)
+
+                metadata = getattr(response, "response_metadata", {}) or {}
+                usage = metadata.get("usage", {}) or {}
+                tokens = {
+                    "input": usage.get("input_tokens") or usage.get("prompt_tokens") or 0,
+                    "output": usage.get("output_tokens") or usage.get("completion_tokens") or 0,
+                }
+                self.on_api_response(reply, tokens)
+            except Exception as e:
+                self.on_api_error(str(e))
+
+        thread = threading.Thread(target=api_call, daemon=True)
+        thread.start()
+
+    def stop_generation(self):
+        """Stop AI generation (Ctrl+Shift+X) — soft cancel via flag."""
+        if not self.is_sending:
+            return
+        self._cancelled = True
+        self.status_label.config(text="cancelling...")
+
+    def copy_last_ai_response(self):
+        """Copy the last AI response to the clipboard (Ctrl+Shift+K)."""
+        if not self.display_log:
+            self.add_system_message("[WARN] No messages to copy")
+            return
+
+        # Find the last AI message in display log
+        last_ai_text = None
+        for entry in reversed(self.display_log):
+            if entry.get("role") == "ai" and not entry.get("is_system"):
+                last_ai_text = entry.get("text", "")
+                break
+
+        if not last_ai_text:
+            self.add_system_message("[WARN] No AI response to copy")
+            return
+
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(last_ai_text)
+            self.add_system_message("[OK] last AI response copied to clipboard")
+        except tk.TclError:
+            self.add_system_message("[WARN] Failed to copy to clipboard")
+
+    def toggle_prompt_profile(self):
+        """Cycle through prompt profiles (Ctrl+Shift+M)."""
+        if self.is_sending:
+            self.add_system_message("[WARN] Cannot switch mode while AI is thinking")
+            return
+
+        # Find current index and advance
+        current_idx = 0
+        for i, p in enumerate(self.prompt_profiles):
+            if p["id"] == self.selected_prompt_id:
+                current_idx = i
+                break
+
+        next_idx = (current_idx + 1) % len(self.prompt_profiles)
+        next_profile = self.prompt_profiles[next_idx]
+
+        self.selected_prompt_id = next_profile["id"]
+        save_prompt_profile_id(next_profile["id"])
+        self.prompt_var.set(next_profile["title"])
+
+        if self.provider:
+            self.provider.apply_system_prompt(next_profile["systemPrompt"])
+
+        self.add_system_message(f"[OK] mode → {next_profile['title']}")
+
+    # ------------------------------------------------------------------
+    # Window controls (keyboard-only)
+    # ------------------------------------------------------------------
+
+    def _move_overlay(self, dx, dy):
+        """Move the overlay window by (dx, dy) pixels."""
+        move_overlay(self.root, dx, dy)
+
+    def _reset_overlay_position(self):
+        """Reset overlay to default position from config."""
+        reset_overlay_position(self.root, self.config)
+        self.add_system_message("[OK] overlay position reset")
+
+    # ------------------------------------------------------------------
+    # Hotkey handlers
+    # ------------------------------------------------------------------
+
     def hotkey_toggle(self):
         """Toggle window visible/hidden (Ctrl+Shift+Space)."""
         if self.is_visible:
@@ -849,41 +1096,45 @@ class OverlayApp:
             self.is_visible = False
         else:
             present_overlay_window(self.root)
+            # Re-apply click-through after showing
+            apply_click_through(self.root)
             self.is_visible = True
-    
+
     def hotkey_capture(self):
         """Capture screen and queue for sending (Ctrl+Shift+S)."""
         if not self.provider:
             return
-        
+
         # Hide window, capture, show window
         self.root.withdraw()
         time.sleep(0.25)
-        
+
         max_w = int(get_config_value(self.config, "CAPTURE", "max_width", "1280"))
         quality = int(get_config_value(self.config, "CAPTURE", "jpeg_quality", "82"))
         base64_image = capture_and_compress_screenshot(max_width=max_w, jpeg_quality=quality)
-        
+
         present_overlay_window(self.root)
+        # Re-apply click-through after showing
+        apply_click_through(self.root)
 
         if not base64_image:
             self.add_system_message("[WARN] Screenshot capture failed")
             return
-        
+
         self.screenshot_count += 1
         self._add_screenshot_to_queue(base64_image)
         n = len(self.screenshot_queue)
         self.status_label.config(text=f"screenshot queued · {n} pending")
-    
+
     def hotkey_clear(self):
         """Clear conversation history (Ctrl+Shift+C)."""
         if self.provider:
             self.provider.clear_history()
-        
+
         self.chat_display.config(state=tk.NORMAL)
         self.chat_display.delete(1.0, tk.END)
         self.chat_display.config(state=tk.DISABLED)
-        
+
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.message_count = 0
@@ -897,33 +1148,29 @@ class OverlayApp:
         # Clear display log
         self.display_log.clear()
         self._save_display_log()
-        
+
         self.add_system_message("conversation cleared · memory reset")
         self.status_label.config(text="ready · 0 in / 0 out tokens")
-    
-    def hotkey_focus(self):
-        """Focus input box (Ctrl+Shift+I)."""
-        self.input_box.focus()
-    
+
     def hotkey_export(self):
         """Export conversation to Markdown (Ctrl+Shift+E)."""
         if not self.provider or not self.provider.conversation_history:
             self.add_system_message("[WARN] No conversation to export")
             return
-        
+
         # Create exports directory in a writable per-user location
         exports_dir = get_user_data_root() / "exports"
         exports_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Generate filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = exports_dir / f"chat_{timestamp}.md"
-        
+
         # Build markdown content
         content = "# AI Overlay Export\n\n"
         content += f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         content += "---\n"
-        
+
         for msg in self.provider.conversation_history:
             content += "\n"
             if HumanMessage is not None and isinstance(msg, HumanMessage):
@@ -948,12 +1195,12 @@ class OverlayApp:
                             content += "[screenshot]\n"
             else:
                 content += str(msg.content) + "\n"
-        
+
         # Write file
         filename.write_text(content, encoding="utf-8")
 
         self.add_system_message(f"[OK] Exported to {filename}")
-    
+
     def change_prompt_profile(self, title):
         """Switch the active system prompt profile."""
         if self.is_sending:
@@ -999,18 +1246,18 @@ class OverlayApp:
             except ValueError as exc:
                 self.add_system_message(f"[WARN] {exc}")
                 return
-            
+
             # Reinitialize provider and restore selected prompt profile
             profile = get_prompt_by_id(self.selected_prompt_id)
             system_prompt = profile["systemPrompt"] if profile else None
             self.provider = get_provider(self.config, system_prompt=system_prompt)
-            
+
             # Clear conversation for new provider
             self.provider.clear_history()
             self.chat_display.config(state=tk.NORMAL)
             self.chat_display.delete(1.0, tk.END)
             self.chat_display.config(state=tk.DISABLED)
-            
+
             self.total_input_tokens = 0
             self.total_output_tokens = 0
             self.message_count = 0
@@ -1024,80 +1271,21 @@ class OverlayApp:
             # Clear display log
             self.display_log.clear()
             self._save_display_log()
-            
+
             self.add_system_message(f"[OK] switched to {model_name}")
             self.status_label.config(text="ready · 0 in / 0 out tokens")
-            
+
         except Exception as e:
             self.add_system_message(f"[WARN] Error switching model: {str(e)}")
             self.model_var.set("Claude 4.5 Opus")  # Reset dropdown
-    
-    def _schedule_on_main_thread(self, callback):
-        """Run a hotkey handler on the Tk main thread (required for UI updates)."""
-        try:
-            self.root.after(0, callback)
-        except tk.TclError:
-            pass
+
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
 
     def _on_window_close(self):
-        for remover in self._hotkey_removers:
-            try:
-                remover()
-            except Exception:
-                pass
-        self._hotkey_removers.clear()
+        """Clean shutdown — unregister all shortcuts and clear volatile data."""
+        self.shortcut_manager.unregister_all()
         # Security: clear any volatile screenshot data on clean exit.
         clear_screenshot_queue()
         self.root.destroy()
-
-    def _warmup_keyboard_listener(self):
-        """Initialize the keyboard hook thread (needed for some PyInstaller builds)."""
-        try:
-            keyboard.start_recording()
-            keyboard.stop_recording()
-        except Exception:
-            pass
-
-    def register_hotkeys(self):
-        """Register global hotkeys via the keyboard library."""
-        if self._hotkeys_registered:
-            return
-
-        toggle_key = get_config_value(self.config, "HOTKEYS", "toggle", "ctrl+shift+space")
-        capture_key = get_config_value(self.config, "HOTKEYS", "capture", "ctrl+shift+s")
-        clear_key = get_config_value(self.config, "HOTKEYS", "clear", "ctrl+shift+c")
-        focus_key = get_config_value(self.config, "HOTKEYS", "focus", "ctrl+shift+i")
-        export_key = get_config_value(self.config, "HOTKEYS", "export", "ctrl+shift+e")
-
-        bindings = [
-            (toggle_key, self.hotkey_toggle),
-            (capture_key, self.hotkey_capture),
-            (clear_key, self.hotkey_clear),
-            (focus_key, self.hotkey_focus),
-            (export_key, self.hotkey_export),
-        ]
-
-        self._warmup_keyboard_listener()
-
-        failed = []
-        for combo, handler in bindings:
-            try:
-                remover = keyboard.add_hotkey(
-                    combo,
-                    lambda h=handler: self._schedule_on_main_thread(h),
-                    suppress=False,
-                )
-                self._hotkey_removers.append(remover)
-            except Exception:
-                failed.append(combo)
-
-        if failed:
-            self.add_system_message(
-                "[WARN] Could not register hotkeys (in use or blocked): " + ", ".join(failed)
-            )
-        elif self._hotkey_removers:
-            self._hotkeys_registered = True
-        else:
-            self.status_label.config(text="ready · hotkeys unavailable")
-
-

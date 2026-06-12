@@ -1,4 +1,8 @@
-"""Shared header close (X) control — visible, aligned, full click target."""
+"""Shared header close (X) control — display-only in keyboard HUD mode.
+
+In click-through HUD mode, the close button is purely visual.
+The overlay is hidden via Ctrl+Shift+Space, not by clicking.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +20,8 @@ _CLOSE_HEIGHT_LARGE = 34
 
 def create_header_close_button(parent, command, colors=None, *, bar_bg=None, large=False):
     """
-    Build a close control. Pack the returned frame side=RIGHT *after*
+    Build a close control (display-only — no mouse interaction in HUD mode).
+    Pack the returned frame side=RIGHT *after*
     other widgets in the same row so it stays on the far right.
     """
     c = colors or COLORS
@@ -49,21 +54,7 @@ def create_header_close_button(parent, command, colors=None, *, bar_bg=None, lar
     frame._close_colors = c
     frame._close_bar_bg = bg
 
-    def _on_enter(_event=None):
-        label.config(fg=c["error_red"], bg=c["bg_input"])
-        frame.config(bg=c["bg_input"], highlightbackground=c["error_red"])
-
-    def _on_leave(_event=None):
-        label.config(fg=c["text_normal"], bg=bg)
-        frame.config(bg=bg, highlightbackground=c["border"])
-
-    def _on_click(_event=None):
-        command()
-
-    for widget in (frame, label):
-        widget.bind("<Button-1>", _on_click)
-        widget.bind("<Enter>", _on_enter)
-        widget.bind("<Leave>", _on_leave)
+    # No mouse bindings — all interaction is via keyboard shortcuts
 
     return frame
 

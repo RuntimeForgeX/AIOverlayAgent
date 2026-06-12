@@ -20,6 +20,8 @@ GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_APPWINDOW = 0x00040000
 WS_EX_NOACTIVATE = 0x08000000
+WS_EX_TRANSPARENT = 0x00000020
+WS_EX_LAYERED = 0x00080000
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
 SWP_NOZORDER = 0x0004
@@ -86,6 +88,11 @@ _user32.SetWindowPos.argtypes = [
     wintypes.UINT,
 ]
 _user32.SetWindowPos.restype = wintypes.BOOL
+
+_user32.GetForegroundWindow.argtypes = []
+_user32.GetForegroundWindow.restype = wintypes.HWND
+_user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+_user32.SetForegroundWindow.restype = wintypes.BOOL
 
 
 def _apply_capture_exclusion_to_hwnd(hwnd):
@@ -282,7 +289,7 @@ def apply_invisibility_to_tkinter_window(window):
         return False
 
 
-def apply_overlay_window_config(window, opacity=None):
+def apply_overlay_window_config(window, opacity=None, click_through=False):
     """Apply borderless overlay chrome shared by fixed panels (main overlay, modules)."""
     try:
         window.overrideredirect(True)
@@ -298,6 +305,8 @@ def apply_overlay_window_config(window, opacity=None):
             window.wm_attributes("-alpha", opacity)
     except tk.TclError:
         pass
+    if click_through:
+        apply_click_through(window)
 
 
 def raise_without_activate(window):
@@ -331,6 +340,72 @@ def present_overlay_window(window):
         refresh_cursor_policy(window)
     except tk.TclError:
         pass
+
+
+def apply_click_through(window):
+    """Make a window fully click-through — all mouse events pass to the app below.
+
+    Combines WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE with the
+    existing WS_EX_TOOLWINDOW so the overlay never intercepts clicks.
+    """
+    try:
+        window.update_idletasks()
+        try:
+            hwnd = int(window.wm_frame(), 16)
+        except Exception:
+            hwnd = get_tkinter_hwnd(window)
+            
+        if hwnd:
+            style = _get_window_exstyle(hwnd)
+            new_style = (
+                style
+                | WS_EX_TRANSPARENT
+                | WS_EX_LAYERED
+                | WS_EX_TOOLWINDOW
+                | WS_EX_NOACTIVATE
+            ) & ~WS_EX_APPWINDOW
+            _set_window_exstyle(hwnd, new_style)
+    except Exception as e:
+        _debug_print(f"[invisibility] click-through failed: {e}")
+
+
+def move_overlay(window, dx: int, dy: int):
+    """Move the overlay window by (dx, dy) pixels."""
+    try:
+        x = window.winfo_x() + dx
+        y = window.winfo_y() + dy
+        window.geometry(f"+{x}+{y}")
+    except tk.TclError:
+        pass
+
+
+def reset_overlay_position(window, config):
+    """Reset overlay to the default position from config."""
+    from src.config.settings import get_config_value
+    try:
+        start_x = int(get_config_value(config, "UI", "start_x", "60"))
+        start_y = int(get_config_value(config, "UI", "start_y", "60"))
+        window.geometry(f"+{start_x}+{start_y}")
+    except (tk.TclError, ValueError):
+        pass
+
+
+def get_foreground_window() -> int:
+    """Return the HWND of the currently focused foreground window."""
+    try:
+        return _user32.GetForegroundWindow()
+    except Exception:
+        return 0
+
+
+def set_foreground_window(hwnd: int) -> bool:
+    """Restore focus to a previously saved foreground window."""
+    if not hwnd or hwnd <= 0:
+        return False
+    try:
+        return bool(_user32.SetForegroundWindow(hwnd))
+    except Exception:
+        return False
 
 
 def generate_ephemeral_window_title(hint: str = "overlay") -> str:
