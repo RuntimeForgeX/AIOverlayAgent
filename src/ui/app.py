@@ -107,7 +107,7 @@ class OverlayApp:
         self._quick_buttons = []
 
         # Hybrid state
-        self._click_through_active = False
+        self._click_through_active = True
 
         # Input mode state
         self._input_mode_active = False
@@ -267,8 +267,8 @@ class OverlayApp:
         # Randomize the OS window title: the visible UI header is the "real" title.
         assign_ephemeral_window_title(self.root, hint="overlay")
         self.root.configure(bg=COLORS["bg_main"])
-        # Apply overlay config WITHOUT click-through by default
-        apply_overlay_window_config(self.root, opacity=opacity, click_through=False)
+        # Apply overlay config WITH click-through by default
+        apply_overlay_window_config(self.root, opacity=opacity, click_through=True)
         self.root.resizable(False, False)
 
         self.window_opacity = opacity
