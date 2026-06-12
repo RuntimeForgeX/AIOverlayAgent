@@ -97,14 +97,26 @@ def load_environment():
     Load API keys and secrets into os.environ.
 
     Windows user/system environment variables are already in os.environ and always win.
-    .env files only fill in keys that are not already set (override=False).
+    .env files only fill in keys that are not already set.
     """
+    # Capture any existing system/user env vars so they are never overwritten.
+    api_key_names = (
+        "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+    )
+    saved = {name: os.environ.get(name) for name in api_key_names}
+
     for dotenv_file in get_candidate_dotenv_files():
         try:
             if dotenv_file.is_file():
                 load_dotenv(dotenv_path=dotenv_file, override=False, encoding="utf-8")
         except Exception:
             pass
+
+    # Restore anything that python-dotenv might have clobbered.
+    for name, original in saved.items():
+        if original is not None:
+            os.environ[name] = original
 
 
 def get_api_key(name):

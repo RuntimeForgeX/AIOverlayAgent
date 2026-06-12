@@ -18,16 +18,14 @@ from src.config.settings import get_config_value
 MODEL_CHOICES: list[tuple[str, str, str]] = [
     # --- OpenRouter (OPENROUTER_API_KEY) ---
     ("OR Gemini 3.1 Pro", "openrouter", "google/gemini-3.1-pro-preview"),
-    ("OR Claude Opus 4.8", "openrouter", "anthropic/claude-opus-4.8"),
     ("OR GPT-5.5", "openrouter", "openai/gpt-5.5"),
-    ("OR GPT-5.2", "openrouter", "openai/gpt-5.2"),
-    ("OR GPT-5.2 Pro", "openrouter", "openai/gpt-5.2-pro"),
     ("OR kimi 4.6","openrouter","moonshotai/kimi-k2.6"),
     # --- Direct OpenAI (OPENAI_API_KEY) — Chat Completions compatible ---
     ("GPT-5.5 (direct)", "openai", "gpt-5.5"),
     ("GPT-5.2 (direct)", "openai", "gpt-5.2"),
     # --- Direct Google Gemini (GEMINI_API_KEY) ---
     ("Gemini 3.1 Pro (direct)", "gemini", "gemini-3.1-pro-preview"),
+    ("Free Gemini 3.5-flash","gemini","gemini-3.5-flash"),
     # --- Direct Anthropic (ANTHROPIC_API_KEY) ---
     ("Claude Opus 4.8 (direct)", "anthropic", "claude-opus-4-8"),
 ]
