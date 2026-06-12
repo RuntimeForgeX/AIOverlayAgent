@@ -44,6 +44,7 @@ from src.utils.win32_invisibility import (
     apply_invisibility_to_tkinter_window,
     apply_overlay_window_config,
     apply_click_through,
+    remove_click_through,
     get_tkinter_hwnd,
     get_window_handle,
     find_window_by_class,
@@ -55,6 +56,8 @@ from src.utils.win32_invisibility import (
     reset_overlay_position,
     get_foreground_window,
     set_foreground_window,
+    InvisibleContextMenu,
+    InvisibleModelDropdown,
     InvisibleTopLevel,
 )
 from src.config.models import (
@@ -66,19 +69,15 @@ from src.config.models import (
 from src.services.llm_provider import get_provider, HumanMessage, AIMessage
 from src.ui.markdown.renderer import configure_markdown_tags, render_markdown, clean_bmp
 from src.ui.cursor import refresh_cursor_policy
+from src.ui.close_button import create_header_close_button
 from src.ui.shortcut_manager import ShortcutManager
 
 # ============================================================================
-# MAIN APPLICATION — KEYBOARD-ONLY HUD
+# MAIN APPLICATION — HYBRID HUD (TOGGLEABLE)
 # ============================================================================
 
 class OverlayApp:
-    """Main AI Overlay Application — keyboard-only, non-interactive HUD.
-
-    The overlay is purely visual. All interaction happens through global
-    keyboard shortcuts. Mouse events pass through to the application
-    underneath via WS_EX_TRANSPARENT.
-    """
+    """Main AI Overlay Application — Hybrid Interactive & HUD mode."""
 
     THEME_ICONS = {"dark": "🌙", "light": "☀", "system": "🖥"}
     THEME_CYCLE = ["dark", "light", "system"]
@@ -105,6 +104,10 @@ class OverlayApp:
         self.display_log = []
         self.screenshot_queue = []  # list of {"b64": str, "photo": PhotoImage}
         self._loading_history = False
+        self._quick_buttons = []
+
+        # Hybrid state
+        self._click_through_active = False
 
         # Input mode state
         self._input_mode_active = False
@@ -150,7 +153,7 @@ class OverlayApp:
         # Re-apply capture exclusion after the window is fully realized in mainloop
         self.setup_invisibility_maintenance()
 
-        print("AI Overlay Agent started (keyboard-only HUD mode)")
+        print("AI Overlay Agent started (Hybrid Mode)")
 
     # ------------------------------------------------------------------
     # Shortcut registration
@@ -211,6 +214,14 @@ class OverlayApp:
         rc("reset_position", "reset_position", "ctrl+shift+0",
            self._reset_overlay_position, "Reset overlay position")
 
+        # Hybrid specific
+        rc("toggle_click_through", "toggle_click_through", "ctrl+shift+t",
+           self.hotkey_toggle_click_through, "Toggle interactive/HUD mode")
+        rc("cycle_model_fwd", "cycle_model_fwd", "ctrl+shift+alt+pagedown",
+           lambda: self.cycle_model(1), "Cycle model forward")
+        rc("cycle_model_back", "cycle_model_back", "ctrl+shift+alt+pageup",
+           lambda: self.cycle_model(-1), "Cycle model backward")
+
     def _activate_shortcuts(self):
         """Activate all registered shortcuts (called after window is realized)."""
         failed = self.shortcut_manager.activate_all()
@@ -245,7 +256,7 @@ class OverlayApp:
         self.root.after(5000, self._start_invisibility_polling)
 
     def setup_window(self):
-        """Setup tkinter window as a click-through, non-interactive HUD."""
+        """Setup tkinter window as a hybrid HUD."""
         width = int(get_config_value(self.config, "UI", "width", "500"))
         height = int(get_config_value(self.config, "UI", "height", "650"))
         start_x = int(get_config_value(self.config, "UI", "start_x", "60"))
@@ -256,14 +267,34 @@ class OverlayApp:
         # Randomize the OS window title: the visible UI header is the "real" title.
         assign_ephemeral_window_title(self.root, hint="overlay")
         self.root.configure(bg=COLORS["bg_main"])
-        # Apply overlay config WITH click-through enabled
-        apply_overlay_window_config(self.root, opacity=opacity, click_through=True)
+        # Apply overlay config WITHOUT click-through by default
+        apply_overlay_window_config(self.root, opacity=opacity, click_through=False)
         self.root.resizable(False, False)
 
         self.window_opacity = opacity
 
+        self.setup_drag()
         self.build_ui()
         self.apply_main_window_invisibility()
+
+    def setup_drag(self):
+        """Make window draggable by header bar."""
+        self.drag_data = {"x": 0, "y": 0}
+
+        def start_drag(event):
+            self.drag_data["x"] = event.x
+            self.drag_data["y"] = event.y
+
+        def drag_motion(event):
+            delta_x = event.x - self.drag_data["x"]
+            delta_y = event.y - self.drag_data["y"]
+            x = self.root.winfo_x() + delta_x
+            y = self.root.winfo_y() + delta_y
+            self.root.geometry(f"+{x}+{y}")
+
+        # Bind to root but only header frame will propagate effectively
+        self.root.bind("<Button-1>", start_drag, add="+")
+        self.root.bind("<B1-Motion>", drag_motion, add="+")
 
     def apply_main_window_invisibility(self, verbose=False):
         """Apply capture exclusion to the main overlay and all process windows."""
@@ -274,8 +305,11 @@ class OverlayApp:
         success = apply_capture_exclusion(self.root, title=None, verbose=verbose)
         self.window_invisible = success
 
-        # Re-apply click-through after every invisibility pass
-        apply_click_through(self.root)
+        # Maintain click-through state if active
+        if self._click_through_active:
+            apply_click_through(self.root)
+        else:
+            remove_click_through(self.root)
 
         hwnd = get_tkinter_hwnd(self.root)
         if hwnd:
@@ -301,7 +335,7 @@ class OverlayApp:
             pass
 
     def build_ui(self):
-        """Build the HUD layout — display-only, no interactive elements."""
+        """Build the UI layout — with interactive elements restored."""
         # Header frame
         self.header_frame = tk.Frame(self.root, bg=COLORS["bg_header"], height=40)
         self.header_frame.pack(fill=tk.X, padx=0, pady=0)
@@ -315,35 +349,53 @@ class OverlayApp:
         )
         self.title_label.pack(side=tk.LEFT, padx=10, pady=8)
 
-        # Model label (display-only, no dropdown interaction)
-        self.model_var = tk.StringVar(value=resolve_model_label(self.config))
-        self.model_label = tk.Label(
-            self.header_frame,
-            textvariable=self.model_var,
-            fg=COLORS["accent_green"], bg=COLORS["bg_header"],
-            font=("Courier New", 8),
-        )
-        self.model_label.pack(side=tk.RIGHT, padx=5, pady=8)
-
-        # Prompt profile label (display-only)
-        initial_prompt_title = get_prompt_by_id(self.selected_prompt_id)["title"]
-        self.prompt_var = tk.StringVar(value=initial_prompt_title)
-        self.prompt_label = tk.Label(
-            self.header_frame,
-            textvariable=self.prompt_var,
-            fg=COLORS["accent_blue"], bg=COLORS["bg_header"],
-            font=("Courier New", 8),
-        )
-        self.prompt_label.pack(side=tk.RIGHT, padx=5, pady=8)
-
-        # Mode indicator
+        # Mode indicator (Click-through toggle status)
         self.mode_indicator = tk.Label(
             self.header_frame,
-            text="[HUD]",
-            fg=COLORS["text_dim"], bg=COLORS["bg_header"],
-            font=("Courier New", 8)
+            text="[INTERACTIVE]",
+            fg=COLORS["accent_green"], bg=COLORS["bg_header"],
+            font=("Courier New", 8, "bold")
         )
-        self.mode_indicator.pack(side=tk.RIGHT, padx=5, pady=8)
+        self.mode_indicator.pack(side=tk.LEFT, padx=5, pady=8)
+
+        # Model selector dropdown
+        models = model_labels()
+        self.model_var = tk.StringVar(value=resolve_model_label(self.config))
+        self.model_dropdown = InvisibleModelDropdown(
+            self.header_frame,
+            self.model_var,
+            models,
+            command=self.change_model,
+            bg=COLORS["bg_header"],
+            fg=COLORS["accent_green"],
+            font=("Courier New", 8),
+            relief=tk.FLAT,
+            activebackground=COLORS["bg_input"],
+            activeforeground=COLORS["accent_green"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.model_dropdown.pack(side=tk.RIGHT, padx=5, pady=8)
+
+        # Prompt profile dropdown
+        prompt_titles = [p["title"] for p in self.prompt_profiles]
+        initial_prompt_title = get_prompt_by_id(self.selected_prompt_id)["title"]
+        self.prompt_var = tk.StringVar(value=initial_prompt_title)
+        self.prompt_dropdown = InvisibleModelDropdown(
+            self.header_frame,
+            self.prompt_var,
+            prompt_titles,
+            command=self.change_prompt_profile,
+            bg=COLORS["bg_header"],
+            fg=COLORS["accent_blue"],
+            font=("Courier New", 8),
+            relief=tk.FLAT,
+            activebackground=COLORS["bg_input"],
+            activeforeground=COLORS["accent_blue"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.prompt_dropdown.pack(side=tk.RIGHT, padx=5, pady=8)
 
         # Chat history panel
         self.chat_frame = tk.Frame(self.root, bg=COLORS["bg_chat"])
@@ -361,17 +413,10 @@ class OverlayApp:
         )
         self.chat_display.pack(fill=tk.BOTH, expand=True)
 
-        # Disable scrollbar mouse interaction (display-only)
-        try:
-            scrollbar = self.chat_display.vbar
-            scrollbar.configure(command=lambda *a: None)
-        except Exception:
-            pass
-
         # Configure text tags
         self._configure_chat_tags()
 
-        # Thumbnail strip (hidden by default, display-only)
+        # Thumbnail strip (hidden by default)
         self.thumb_strip_frame = tk.Frame(self.root, bg=COLORS["bg_input"])
         # Do not pack yet — shown when screenshots are queued
 
@@ -391,9 +436,16 @@ class OverlayApp:
 
         self.thumb_inner_frame.bind("<Configure>", _on_thumb_frame_configure)
 
-        # Input frame (hidden by default — shown only in input mode)
+        # Horizontal mousewheel scrolling on thumbnail strip
+        def _on_thumb_mousewheel(event):
+            self.thumb_canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        self.thumb_canvas.bind("<MouseWheel>", _on_thumb_mousewheel)
+        self.thumb_inner_frame.bind("<MouseWheel>", _on_thumb_mousewheel)
+
+        # Input frame
         self.input_frame = tk.Frame(self.root, bg=COLORS["bg_input"])
-        # NOT packed — only shown when entering input mode
+        self.input_frame.pack(fill=tk.X, padx=8, pady=8)
 
         self.input_box = tk.Entry(
             self.input_frame,
@@ -404,22 +456,50 @@ class OverlayApp:
             insertbackground=COLORS["accent_green"]
         )
         self.input_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.input_box.bind("<Return>", lambda e: self.send_message())
 
-        # Input mode label
-        self.input_mode_label = tk.Label(
+        self.send_button = tk.Button(
             self.input_frame,
-            text="[INPUT]",
-            fg=COLORS["accent_green"],
-            bg=COLORS["bg_input"],
-            font=("Courier New", 8, "bold"),
+            text="⏎",
+            bg=COLORS["accent_green"],
+            fg=COLORS["bg_main"],
+            font=("Courier New", 10, "bold"),
+            relief=tk.FLAT,
+            width=3,
+            command=self.send_message
         )
-        self.input_mode_label.pack(side=tk.RIGHT, padx=5, pady=5)
+        self.send_button.pack(side=tk.LEFT, padx=2, pady=5)
+
+        # Quick buttons frame
+        self.buttons_frame = tk.Frame(self.root, bg=COLORS["bg_main"])
+        self.buttons_frame.pack(fill=tk.X, padx=8, pady=4)
+
+        self._quick_buttons = []
+        btn_defs = [
+            ("📷 Capture", self.hotkey_capture),
+            ("🗑 Clear", self.hotkey_clear),
+            ("💾 Export", self.hotkey_export),
+            ("✕ Close", self._on_window_close),
+        ]
+        for text, cmd in btn_defs:
+            is_close = text == "✕ Close"
+            btn = tk.Button(
+                self.buttons_frame,
+                text=text,
+                bg=COLORS["bg_header"],
+                fg=COLORS["error_red"] if is_close else COLORS["text_normal"],
+                font=("Courier New", 8, "bold") if is_close else ("Courier New", 8),
+                relief=tk.FLAT,
+                command=cmd,
+            )
+            btn.pack(side=tk.LEFT, padx=2)
+            self._quick_buttons.append(btn)
 
         # Shortcut hint bar (always visible at bottom)
         self.hint_frame = tk.Frame(self.root, bg=COLORS["bg_main"])
         self.hint_frame.pack(fill=tk.X, padx=8, pady=2)
 
-        hint_text = "I:input  S:capture  C:clear  E:export  ↑↓:scroll  Space:toggle"
+        hint_text = "T:toggleHUD  I:input  S:capture  C:clear  E:export  ↑↓:scroll  Space:toggle"
         self.hint_label = tk.Label(
             self.hint_frame,
             text=hint_text,
@@ -466,7 +546,7 @@ class OverlayApp:
         configure_markdown_tags(self.chat_display, c)
 
     # ------------------------------------------------------------------
-    # Thumbnail / screenshot queue (display-only, no mouse interaction)
+    # Thumbnail / screenshot queue
     # ------------------------------------------------------------------
 
     def _create_thumbnail_photo(self, b64_image, size=(60, 45)):
@@ -494,8 +574,77 @@ class OverlayApp:
         self._rebuild_thumbnail_strip()
         self._save_screenshot_queue()
 
+    def _remove_screenshot(self, idx):
+        """Remove a screenshot from the queue."""
+        if 0 <= idx < len(self.screenshot_queue):
+            self.screenshot_queue.pop(idx)
+            self._rebuild_thumbnail_strip()
+            self._save_screenshot_queue()
+            n = len(self.screenshot_queue)
+            self.status_label.config(
+                text=f"screenshot removed · {n} pending" if n else "ready"
+            )
+
+    def _move_screenshot(self, idx, direction):
+        """Move a screenshot left (-1) or right (+1) in the queue."""
+        new_idx = idx + direction
+        if 0 <= new_idx < len(self.screenshot_queue):
+            self.screenshot_queue[idx], self.screenshot_queue[new_idx] = \
+                self.screenshot_queue[new_idx], self.screenshot_queue[idx]
+            self._rebuild_thumbnail_strip()
+            self._save_screenshot_queue()
+
+    def _preview_screenshot(self, idx):
+        """Open a full-size preview of a queued screenshot."""
+        if idx >= len(self.screenshot_queue):
+            return
+        b64 = self.screenshot_queue[idx]["b64"]
+        try:
+            image_bytes = base64.b64decode(b64)
+            image = Image.open(io.BytesIO(image_bytes))
+            image.thumbnail((800, 600), Image.Resampling.LANCZOS)
+
+            preview = InvisibleTopLevel(self.root)
+            preview.title("Screenshot Preview")
+            preview.geometry(f"{image.width}x{image.height + 50}")
+            preview.configure(bg=COLORS["bg_main"])
+
+            preview_header = tk.Frame(preview, bg=COLORS["bg_header"])
+            preview_header.pack(fill=tk.X)
+            tk.Label(
+                preview_header,
+                text="Screenshot Preview",
+                fg=COLORS["accent_green"],
+                bg=COLORS["bg_header"],
+                font=("Courier New", 10, "bold"),
+            ).pack(side=tk.LEFT, padx=10, pady=6)
+            create_header_close_button(
+                preview_header, preview.destroy,
+            ).pack(side=tk.RIGHT, padx=(4, 8), pady=4)
+
+            photo = ImageTk.PhotoImage(image)
+            lbl = tk.Label(preview, image=photo, bg=COLORS["bg_main"])
+            lbl.image = photo
+            lbl.pack(padx=5, pady=5)
+
+            preview.show()
+        except Exception:
+            self.add_system_message("[WARN] Could not preview screenshot")
+
+    def _show_thumb_context_menu(self, event, idx):
+        """Show right-click context menu for a thumbnail (capture-excluded)."""
+        items = [("Preview", lambda: self._preview_screenshot(idx), True)]
+        if idx > 0:
+            items.append(("◀ Move Left", lambda: self._move_screenshot(idx, -1), True))
+        if idx < len(self.screenshot_queue) - 1:
+            items.append(("Move Right ▶", lambda: self._move_screenshot(idx, 1), True))
+        items.append(("─" * 24, lambda: None, False))
+        items.append(("✕ Remove", lambda: self._remove_screenshot(idx), True))
+        menu = InvisibleContextMenu(self.root, items)
+        menu.open_at(event.x_root, event.y_root)
+
     def _rebuild_thumbnail_strip(self):
-        """Rebuild the thumbnail strip from the screenshot queue (display-only)."""
+        """Rebuild the thumbnail strip from the screenshot queue."""
         for widget in self.thumb_inner_frame.winfo_children():
             widget.destroy()
 
@@ -516,18 +665,22 @@ class OverlayApp:
             img_label.image = entry["photo"]
             img_label.pack(side=tk.LEFT, padx=2, pady=2)
 
-            # Index label (for reference — no interactive controls)
-            idx_label = tk.Label(
-                container, text=f"#{i+1}",
-                fg=COLORS["text_dim"], bg=COLORS["thumb_bg"],
-                font=("Courier New", 7),
+            remove_lbl = tk.Label(
+                container, text="×", fg=COLORS["remove_btn_fg"],
+                bg=COLORS["thumb_bg"], font=("Courier New", 9, "bold"),
             )
-            idx_label.pack(side=tk.LEFT, padx=(0, 3))
+            remove_lbl.pack(side=tk.LEFT, padx=(0, 3))
+            remove_lbl.bind("<Button-1>", lambda e, idx=i: self._remove_screenshot(idx))
+
+            # Double-click to preview, right-click for context menu
+            img_label.bind("<Double-Button-1>", lambda e, idx=i: self._preview_screenshot(idx))
+            img_label.bind("<Button-3>", lambda e, idx=i: self._show_thumb_context_menu(e, idx))
+            container.bind("<Button-3>", lambda e, idx=i: self._show_thumb_context_menu(e, idx))
 
         if self.screenshot_queue:
             # Pack the strip above the input frame / hint frame
             self.thumb_strip_frame.pack(fill=tk.X, padx=8, pady=(0, 4),
-                                        before=self.hint_frame)
+                                        before=self.input_frame)
         else:
             self.thumb_strip_frame.pack_forget()
 
@@ -604,9 +757,22 @@ class OverlayApp:
         # Header
         self.header_frame.configure(bg=c["bg_header"])
         self.title_label.configure(fg=c["accent_green"], bg=c["bg_header"])
-        self.model_label.configure(fg=c["accent_green"], bg=c["bg_header"])
-        self.prompt_label.configure(fg=c["accent_blue"], bg=c["bg_header"])
-        self.mode_indicator.configure(fg=c["text_dim"], bg=c["bg_header"])
+        self.mode_indicator.configure(bg=c["bg_header"])
+        self._update_mode_indicator()
+
+        # Model dropdown
+        self.model_dropdown.configure(bg=c["bg_header"])
+        self.model_dropdown.button.configure(
+            bg=c["bg_header"], fg=c["accent_green"],
+            activebackground=c["bg_input"], activeforeground=c["accent_green"],
+        )
+
+        # Prompt profile dropdown
+        self.prompt_dropdown.configure(bg=c["bg_header"])
+        self.prompt_dropdown.button.configure(
+            bg=c["bg_header"], fg=c["accent_blue"],
+            activebackground=c["bg_input"], activeforeground=c["accent_blue"],
+        )
 
         # Chat
         self.chat_frame.configure(bg=c["bg_chat"])
@@ -624,7 +790,15 @@ class OverlayApp:
             bg=c["bg_input"], fg=c["text_normal"],
             insertbackground=c["accent_green"],
         )
-        self.input_mode_label.configure(fg=c["accent_green"], bg=c["bg_input"])
+        self.send_button.configure(bg=c["accent_green"], fg=c["bg_main"])
+
+        # Quick buttons
+        self.buttons_frame.configure(bg=c["bg_main"])
+        for btn in self._quick_buttons:
+            if btn.cget("text") == "✕ Close":
+                btn.configure(bg=c["bg_header"], fg=c["error_red"])
+            else:
+                btn.configure(bg=c["bg_header"], fg=c["text_normal"])
 
         # Hint bar
         self.hint_frame.configure(bg=c["bg_main"])
@@ -753,12 +927,8 @@ class OverlayApp:
         self._previous_foreground_hwnd = get_foreground_window()
 
         self._input_mode_active = True
-        self.mode_indicator.config(text="[INPUT]", fg=COLORS["accent_green"])
 
-        # Show and pack the input frame
-        self.input_frame.pack(fill=tk.X, padx=8, pady=8, before=self.hint_frame)
-
-        # Temporarily remove click-through so the input box can receive focus
+        # Temporarily disable click-through so we can type
         self._disable_click_through_for_input()
 
         self.input_box.focus_force()
@@ -766,7 +936,7 @@ class OverlayApp:
         # Bind ESC to exit input mode (local binding on input box)
         self.input_box.bind("<Escape>", lambda e: self._exit_input_mode())
 
-        self.status_label.config(text="input mode · type message, Ctrl+Shift+Enter to send, ESC to cancel")
+        self.status_label.config(text="input mode · type message, Ctrl+Shift+Enter or ⏎ to send, ESC to cancel")
 
     def _exit_input_mode(self):
         """Exit text input mode and restore focus to the previous application."""
@@ -774,16 +944,13 @@ class OverlayApp:
             return
 
         self._input_mode_active = False
-        self.mode_indicator.config(text="[HUD]", fg=COLORS["text_dim"])
-
-        # Hide the input frame
-        self.input_frame.pack_forget()
 
         # Unbind ESC
         self.input_box.unbind("<Escape>")
 
-        # Re-apply click-through
-        apply_click_through(self.root)
+        # Restore click-through state if it was active
+        if self._click_through_active:
+            apply_click_through(self.root)
 
         # Restore focus to the previously active application
         if self._previous_foreground_hwnd:
@@ -796,22 +963,11 @@ class OverlayApp:
 
     def _disable_click_through_for_input(self):
         """Temporarily remove WS_EX_TRANSPARENT so the input box can receive keyboard focus."""
+        if not self._click_through_active:
+            return
         try:
-            from src.utils.win32_invisibility import (
-                get_tkinter_hwnd, _get_window_exstyle, _set_window_exstyle,
-                WS_EX_TRANSPARENT,
-            )
-            self.root.update_idletasks()
-            try:
-                hwnd = int(self.root.wm_frame(), 16)
-            except Exception:
-                hwnd = get_tkinter_hwnd(self.root)
-                
-            if hwnd:
-                style = _get_window_exstyle(hwnd)
-                # Remove ONLY the transparent flag; keep layered, topmost, etc.
-                new_style = style & ~WS_EX_TRANSPARENT
-                _set_window_exstyle(hwnd, new_style)
+            from src.utils.win32_invisibility import remove_click_through
+            remove_click_through(self.root)
         except Exception:
             pass
 
@@ -822,7 +978,7 @@ class OverlayApp:
     def hotkey_send_message(self):
         """Send current input (Ctrl+Shift+Enter) and exit input mode."""
         self.send_message()
-        # Exit input mode after sending
+        # Exit input mode after sending if we were in input mode
         self._exit_input_mode()
 
     def send_message(self):
@@ -842,6 +998,7 @@ class OverlayApp:
         self.input_box.delete(0, tk.END)
         self.is_sending = True
         self._cancelled = False
+        self.send_button.config(state=tk.DISABLED)
         self.message_count += 1
 
         # Build display text (screenshot-only sends no default caption)
@@ -903,6 +1060,7 @@ class OverlayApp:
         """Update UI after API response (must be called from main thread)."""
         self.add_message_to_display("ai", response_text)
         self.is_sending = False
+        self.send_button.config(state=tk.NORMAL)
         self.status_label.config(
             text=f"ready · {self.total_input_tokens} in / {self.total_output_tokens} out tokens"
         )
@@ -911,6 +1069,7 @@ class OverlayApp:
         """Update UI after a cancelled generation."""
         self.add_system_message("[cancelled] response discarded")
         self.is_sending = False
+        self.send_button.config(state=tk.NORMAL)
         self.status_label.config(
             text=f"ready · {self.total_input_tokens} in / {self.total_output_tokens} out tokens"
         )
@@ -923,6 +1082,7 @@ class OverlayApp:
         """Update UI after API error (must be called from main thread)."""
         self.add_message_to_display("system", f"[WARN] Error: {error_text}", is_system=True)
         self.is_sending = False
+        self.send_button.config(state=tk.NORMAL)
         self.status_label.config(text="error · check message above")
 
     # ------------------------------------------------------------------
@@ -978,6 +1138,7 @@ class OverlayApp:
         self.add_system_message("[regenerating last response...]")
         self.is_sending = True
         self._cancelled = False
+        self.send_button.config(state=tk.DISABLED)
         self.status_label.config(text="regenerating...")
 
         # Re-send the last user content
@@ -1072,6 +1233,28 @@ class OverlayApp:
 
         self.add_system_message(f"[OK] mode → {next_profile['title']}")
 
+    def cycle_model(self, direction):
+        """Cycle the selected model forward (+1) or backward (-1)."""
+        if self.is_sending:
+            self.add_system_message("[WARN] Cannot switch model while AI is thinking")
+            return
+
+        models = model_labels()
+        if not models:
+            return
+
+        current_val = self.model_var.get()
+        try:
+            current_idx = models.index(current_val)
+        except ValueError:
+            current_idx = 0
+        
+        next_idx = (current_idx + direction) % len(models)
+        next_model = models[next_idx]
+
+        self.model_var.set(next_model)
+        self.change_model(next_model)
+
     # ------------------------------------------------------------------
     # Window controls (keyboard-only)
     # ------------------------------------------------------------------
@@ -1096,9 +1279,29 @@ class OverlayApp:
             self.is_visible = False
         else:
             present_overlay_window(self.root)
-            # Re-apply click-through after showing
-            apply_click_through(self.root)
+            # Re-apply click-through after showing if active
+            if self._click_through_active:
+                apply_click_through(self.root)
             self.is_visible = True
+
+    def hotkey_toggle_click_through(self):
+        """Toggle between interactive UX mode and click-through HUD mode (Ctrl+Shift+T)."""
+        self._click_through_active = not self._click_through_active
+        if self._click_through_active:
+            apply_click_through(self.root)
+            self.add_system_message("[HUD MODE] Click-through enabled. Window ignores mouse.")
+        else:
+            remove_click_through(self.root)
+            self.add_system_message("[INTERACTIVE MODE] Click-through disabled. Mouse enabled.")
+        
+        self._update_mode_indicator()
+
+    def _update_mode_indicator(self):
+        """Update the header UI text/color to show the current mode."""
+        if self._click_through_active:
+            self.mode_indicator.config(text="[HUD]", fg=COLORS["text_dim"])
+        else:
+            self.mode_indicator.config(text="[INTERACTIVE]", fg=COLORS["accent_green"])
 
     def hotkey_capture(self):
         """Capture screen and queue for sending (Ctrl+Shift+S)."""
@@ -1114,8 +1317,9 @@ class OverlayApp:
         base64_image = capture_and_compress_screenshot(max_width=max_w, jpeg_quality=quality)
 
         present_overlay_window(self.root)
-        # Re-apply click-through after showing
-        apply_click_through(self.root)
+        # Re-apply click-through after showing if active
+        if self._click_through_active:
+            apply_click_through(self.root)
 
         if not base64_image:
             self.add_system_message("[WARN] Screenshot capture failed")

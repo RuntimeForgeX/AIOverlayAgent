@@ -54,7 +54,21 @@ def create_header_close_button(parent, command, colors=None, *, bar_bg=None, lar
     frame._close_colors = c
     frame._close_bar_bg = bg
 
-    # No mouse bindings — all interaction is via keyboard shortcuts
+    def _on_enter(_event=None):
+        label.config(fg=c["error_red"], bg=c["bg_input"])
+        frame.config(bg=c["bg_input"], highlightbackground=c["error_red"])
+
+    def _on_leave(_event=None):
+        label.config(fg=c["text_normal"], bg=bg)
+        frame.config(bg=bg, highlightbackground=c["border"])
+
+    def _on_click(_event=None):
+        command()
+
+    for widget in (frame, label):
+        widget.bind("<Button-1>", _on_click)
+        widget.bind("<Enter>", _on_enter)
+        widget.bind("<Leave>", _on_leave)
 
     return frame
 

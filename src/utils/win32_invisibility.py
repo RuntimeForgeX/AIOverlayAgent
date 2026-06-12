@@ -369,6 +369,23 @@ def apply_click_through(window):
         _debug_print(f"[invisibility] click-through failed: {e}")
 
 
+def remove_click_through(window):
+    """Restore normal mouse interaction by removing WS_EX_TRANSPARENT."""
+    try:
+        window.update_idletasks()
+        try:
+            hwnd = int(window.wm_frame(), 16)
+        except Exception:
+            hwnd = get_tkinter_hwnd(window)
+            
+        if hwnd:
+            style = _get_window_exstyle(hwnd)
+            new_style = style & ~WS_EX_TRANSPARENT
+            _set_window_exstyle(hwnd, new_style)
+    except Exception as e:
+        _debug_print(f"[invisibility] remove click-through failed: {e}")
+
+
 def move_overlay(window, dx: int, dy: int):
     """Move the overlay window by (dx, dy) pixels."""
     try:
