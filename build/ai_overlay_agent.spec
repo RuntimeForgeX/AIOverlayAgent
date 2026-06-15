@@ -81,6 +81,13 @@ _COLLECT_PACKAGES = [
     "src.licensing.fingerprint",
     "src.licensing.config",
     "src.licensing.public_key",
+    "jwt",
+    "cryptography",
+    "requests",
+    "google.ai.generativelanguage",
+    "google.api_core",
+    "google.auth",
+    "google.protobuf",
 ]
 
 for pkg in _COLLECT_PACKAGES:
@@ -110,7 +117,6 @@ datas = [
 ]
 
 _EXCLUDES = [
-    "googleapiclient",
     "googleapiclient.discovery_cache",
     "googleapiclient.discovery_cache.documents",
     "langchain_community",
