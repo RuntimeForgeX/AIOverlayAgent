@@ -58,6 +58,8 @@ Useful files:
 
 - `config.ini`: provider, model, UI, capture, and hotkey defaults.
 - `app_config.ini`: app name, executable name, publisher, and version.
+- `USER_GUIDE.md`: end-user setup, configuration, and shortcut guide.
+- `USER_GUIDE.html`: single-file browser documentation with copy buttons.
 - `src/`: application code.
 - `prompts/` and `src/prompts/`: prompt documentation and runtime prompt profiles.
 
@@ -84,6 +86,8 @@ build\build_installer.bat
 The installer build requires Inno Setup 6.
 
 ## Usage Guide
+
+For a complete end-user guide, See [USER_GUIDE.html](USER_GUIDE.html).
 
 1. Start the app with `python main.py` or the packaged executable.
 2. Select a model from the header dropdown.
