@@ -7,7 +7,7 @@
 - [x] Implement screenshot capture and base64/JPEG compression queue.
 - [x] Integrate LangChain for OpenRouter, OpenAI, and Anthropic.
 - [x] Integrate `google-generativeai` for native Gemini vision support.
-- [x] Build offline device-bound JWT licensing verification.
+- [x] Remove licensing and activation requirements for open-source release.
 - [x] Create PyInstaller and Inno Setup build scripts.
 - [x] Add local persistence for chat history, settings, and screenshot queues.
 - [x] **[2026-06-03]** Generate `.ai` project knowledge system documentation.
@@ -20,4 +20,4 @@
 - [ ] **Thread Safety**: Some UI updates might occur off the main thread or cause blocking behavior during large API responses. Review Tkinter thread safety.
 - [ ] **Installer Code Signing**: The current build process does not include automated code signing, which may cause Windows SmartScreen warnings for users.
 - [ ] **Fallback Invisibility**: Fix the warnings triggered by `apply_invisibility_alternative` if the primary title-based hwnd lookup fails.
-- [ ] **Test Coverage**: No explicit unit test suite (`pytest`) discovered in the repository. Add core tests for LLM routing and licensing logic.
+- [ ] **Test Coverage**: No explicit unit test suite (`pytest`) discovered in the repository. Add core tests for LLM routing, storage, and UI-safe error handling.

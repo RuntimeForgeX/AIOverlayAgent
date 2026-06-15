@@ -18,7 +18,7 @@ def _read_build_config():
         cp.read(app_config_path, encoding="utf-8")
     except Exception:
         cp.read(app_config_path)
-    app_name = cp.get("APP", "name", fallback="PersonalAiAgentSurya").strip()
+    app_name = cp.get("APP", "name", fallback="AIOverlayAgent").strip()
     exe_base = cp.get("BUILD", "exe_base_name", fallback=app_name).strip()
     return {
         "app_name": app_name,
@@ -75,15 +75,6 @@ _COLLECT_PACKAGES = [
     "src.utils",
     "src.utils.win32_invisibility",
     "src.utils.error_handler",
-    "src.licensing",
-    "src.licensing.manager",
-    "src.licensing.dialog",
-    "src.licensing.fingerprint",
-    "src.licensing.config",
-    "src.licensing.public_key",
-    "jwt",
-    "cryptography",
-    "requests",
     "google.ai.generativelanguage",
     "google.api_core",
     "google.auth",
@@ -98,9 +89,6 @@ for pkg in _COLLECT_PACKAGES:
 
 # Gemini SDK (handled by build/hook-google.generativeai.py)
 hiddenimports += [
-    "jwt",
-    "cryptography",
-    "requests",
     "google.generativeai",
     "google.ai.generativelanguage",
     "google.api_core",

@@ -9,7 +9,6 @@ The AI Overlay Agent is a discreet, always-available AI assistant for Windows. I
 3. **Always-On-Top UI**: The interface must float above all other applications, be transparent, and be quickly toggleable via hotkeys.
 4. **Global Hotkeys**: The user can interact with the app (capture screen, toggle visibility) regardless of which window currently has focus.
 5. **Customizable Personas**: The user can switch between different system prompts (e.g., Default, C++ DSA, Python DSA) quickly.
-6. **Premium Licensing**: The app includes a device-bound licensing mechanism to gate premium features or usage.
 
 ## User Workflows
 - **Onboarding**: The user installs the app, enters their OpenRouter/OpenAI API key in the environment or `.env` file, and launches the app.
@@ -19,8 +18,7 @@ The AI Overlay Agent is a discreet, always-available AI assistant for Windows. I
 - **Theme Switching**: The user clicks the theme icon to toggle between dark, light, and system themes.
 
 ## User Roles
-- **Standard User**: Can use the basic features, capture screen, and chat with AI.
-- **Premium User**: Has an activated, device-bound JWT license allowing access to restricted features (as enforced by `src.licensing.manager`).
+- **User**: Can use all application features, capture screens, and chat with AI.
 
 ## Functional Requirements
 - **Capture**: Must compress screenshots to base64 JPEG format before sending to APIs to minimize payload size.
@@ -36,5 +34,5 @@ The AI Overlay Agent is a discreet, always-available AI assistant for Windows. I
 
 ## Future Opportunities
 - **Automated Context**: Automatically scraping text from the active window using OCR or accessibility APIs instead of relying purely on screenshots.
-- **Cloud Sync**: Syncing chat history across devices for premium users.
+- **Cloud Sync**: Optional sync for chat history across devices.
 - **Plugin System**: Allowing local tools (like terminal execution or file reading) to be invoked by the AI.

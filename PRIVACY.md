@@ -40,7 +40,7 @@ Screenshots are compressed (max width 1280px, JPEG) before upload.
 ## What stays local
 
 - API keys: Windows environment variables and/or `.env` on your machine (see load order in `prompts/memory.md`)
-- Optional persistence in `%APPDATA%\PersonalAiAgentSurya\`:
+- Optional persistence in `%APPDATA%\AIOverlayAgent\`:
   - `chat_history.json` (UI display log)
   - `screenshot_queue.json` (queued thumbnails as base64)
   - `preferences.json` (theme)
@@ -56,7 +56,7 @@ Keys are read from:
 
 1. **Windows user/system environment variables** (highest priority)
 2. **`.env` files** (only for variables not already set):
-   - `%APPDATA%\PersonalAiAgentSurya\.env`
+   - `%APPDATA%\AIOverlayAgent\.env`
    - Next to the installed `.exe`
    - Project root `.env` (development)
 

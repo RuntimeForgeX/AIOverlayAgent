@@ -1,4 +1,4 @@
-# Quick Installer Build Commands
+﻿# Quick Installer Build Commands
 
 ## One-Step Build (Fastest)
 
@@ -9,7 +9,7 @@ build\build_exe.bat
 build\build_installer.bat
 ```
 
-**Result:** `release\PersonalAiAgentSurya_Setup.exe` ✓
+**Result:** `release\AIOverlayAgent_Setup.exe` âœ“
 
 ---
 
@@ -19,13 +19,13 @@ build\build_installer.bat
 ```bash
 build\build_exe.bat
 ```
-Creates: `dist\PersonalAiAgentSurya.exe`
+Creates: `dist\AIOverlayAgent.exe`
 
 ### 2. Build the Installer (~1 min)
 ```bash
 build\build_installer.bat
 ```
-Creates: `release\PersonalAiAgentSurya_Setup.exe`
+Creates: `release\AIOverlayAgent_Setup.exe`
 
 ---
 
@@ -33,17 +33,17 @@ Creates: `release\PersonalAiAgentSurya_Setup.exe`
 
 ### Run the installer:
 ```bash
-release\PersonalAiAgentSurya_Setup.exe
+release\AIOverlayAgent_Setup.exe
 ```
 
 ### Uninstall (for testing):
 ```
-Settings > Apps > Apps & Features > PersonalAiAgentSurya > Uninstall
+Settings > Apps > Apps & Features > AIOverlayAgent > Uninstall
 ```
 
 Or via command line:
 ```powershell
-"C:\Program Files\PersonalAiAgentSurya\unins000.exe"
+"C:\Program Files\AIOverlayAgent\unins000.exe"
 ```
 
 ---
@@ -78,8 +78,8 @@ This is normal (60-150 MB with PyInstaller compression)
 
 ## Share the Installer
 
-✓ Share ONLY: `release\PersonalAiAgentSurya_Setup.exe`  
-✗ Don't share: Source code, .venv, build folders
+âœ“ Share ONLY: `release\AIOverlayAgent_Setup.exe`  
+âœ— Don't share: Source code, .venv, build folders
 
 **File size:** 60-150 MB (reasonable for modern internet)
 
@@ -88,13 +88,13 @@ This is normal (60-150 MB with PyInstaller compression)
 ## Pre-Build Checklist
 
 - [ ] Updated `app_config.ini` with correct version
-- [ ] Tested the app locally in `dist\PersonalAiAgentSurya.exe`
+- [ ] Tested the app locally in `dist\AIOverlayAgent.exe`
 - [ ] `.env.example` file exists in project root
 - [ ] `config.ini` exists in project root
 - [ ] Inno Setup 6+ is installed
 - [ ] Python 3.10+ and pip work
 
-Then: `build\build_exe.bat` → `build\build_installer.bat` → ✓
+Then: `build\build_exe.bat` â†’ `build\build_installer.bat` â†’ âœ“
 
 ---
 

@@ -1,4 +1,4 @@
-# Quick Test Checklist
+﻿# Quick Test Checklist
 
 Smoke-test the app in **under 10 minutes** (development or installed build).
 
@@ -16,14 +16,14 @@ Smoke-test the app in **under 10 minutes** (development or installed build).
 py -3 main.py
 ```
 
-Or launch `dist\PersonalAiAgentSurya.exe` / Start Menu shortcut after install.
+Or launch `dist\AIOverlayAgent.exe` / Start Menu shortcut after install.
 
 ---
 
 ## 1. Launch
 
 - [ ] Overlay opens with no Windows error popup
-- [ ] Status bar shows `ready` (or `ready · set API key in environment` if no key)
+- [ ] Status bar shows `ready` (or `ready Â· set API key in environment` if no key)
 - [ ] Chat area visible; header shows model dropdown and theme icon
 
 ---
@@ -42,7 +42,7 @@ Test hotkeys while **another app** (e.g. Notepad) has focus.
 
 ## 3. Text chat
 
-- [ ] Type a short question → Enter or Send
+- [ ] Type a short question â†’ Enter or Send
 - [ ] Status shows `thinking...` then token counts or error in chat
 - [ ] With valid key: AI reply appears with markdown/code styling
 - [ ] With no key: warning in chat only (no system dialog)
@@ -51,7 +51,7 @@ Test hotkeys while **another app** (e.g. Notepad) has focus.
 
 ## 4. Screenshot
 
-- [ ] `Ctrl+Shift+S` — overlay hides briefly, reappears, thumbnail may appear in queue
+- [ ] `Ctrl+Shift+S` â€” overlay hides briefly, reappears, thumbnail may appear in queue
 - [ ] With valid key: AI responds about screen content
 - [ ] Overlay not visible inside the captured image you intended to share (visual check on your monitor)
 
@@ -59,7 +59,7 @@ Test hotkeys while **another app** (e.g. Notepad) has focus.
 
 ## 5. Model switch
 
-- [ ] Change model in header dropdown (e.g. Gemini → GPT)
+- [ ] Change model in header dropdown (e.g. Gemini â†’ GPT)
 - [ ] No `load_environment` or other crash
 - [ ] Chat clears; system message confirms switch
 
@@ -68,7 +68,7 @@ Test hotkeys while **another app** (e.g. Notepad) has focus.
 ## 6. Export
 
 - [ ] Send at least one message
-- [ ] `Ctrl+Shift+E` — system message with path under `%APPDATA%\...\exports\`
+- [ ] `Ctrl+Shift+E` â€” system message with path under `%APPDATA%\...\exports\`
 - [ ] `.md` file opens and readable
 
 ---
@@ -77,23 +77,23 @@ Test hotkeys while **another app** (e.g. Notepad) has focus.
 
 - [ ] Open Settings from quick buttons
 - [ ] Toggle a section; Save
-- [ ] Edit System Prompt; Save — no crash
+- [ ] Edit System Prompt; Save â€” no crash
 
 ---
 
 ## 8. Installed build only
 
-- [ ] Run `release\PersonalAiAgentSurya_Setup.exe` — install completes
+- [ ] Run `release\AIOverlayAgent_Setup.exe` â€” install completes
 - [ ] Desktop / Start Menu shortcut launches app
 - [ ] Hotkeys work from installed exe (not only `py -3 main.py`)
-- [ ] Uninstall removes app from Settings → Apps
+- [ ] Uninstall removes app from Settings â†’ Apps
 
 ---
 
 ## Pass criteria
 
-**Pass:** All items in sections 1–5 work; no system error dialogs; errors only in chat panel.
+**Pass:** All items in sections 1â€“5 work; no system error dialogs; errors only in chat panel.
 
-**Investigate:** Hotkeys fail only in `.exe` → rebuild with latest `build\` scripts; see [RELEASE_BUILD.md](RELEASE_BUILD.md).
+**Investigate:** Hotkeys fail only in `.exe` â†’ rebuild with latest `build\` scripts; see [RELEASE_BUILD.md](RELEASE_BUILD.md).
 
-**Investigate:** Overlay visible in OBS → full display capture, Windows version, [INVISIBILITY_TEST.md](INVISIBILITY_TEST.md).
+**Investigate:** Overlay visible in OBS â†’ full display capture, Windows version, [INVISIBILITY_TEST.md](INVISIBILITY_TEST.md).

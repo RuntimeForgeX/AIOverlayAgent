@@ -1,4 +1,4 @@
-# Release Build Guide
+﻿# Release Build Guide
 
 How to produce a production **`.exe`** and Windows **installer** for AI Overlay Agent.
 
@@ -7,12 +7,12 @@ How to produce a production **`.exe`** and Windows **installer** for AI Overlay 
 ## Prerequisites
 
 1. **Python 3.10+** with `py` launcher on PATH  
-2. **Inno Setup 6** — install with:
+2. **Inno Setup 6** â€” install with:
    ```bat
    winget install -e --id JRSoftware.InnoSetup
    ```
    Default path: `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe`  
-3. Close any running `PersonalAiAgentSurya.exe` before rebuilding  
+3. Close any running `AIOverlayAgent.exe` before rebuilding  
 4. Optional: pause OneDrive sync on the project folder if PyInstaller reports file locks
 
 ---
@@ -30,12 +30,12 @@ build\build_installer.bat
 
 | File | Location |
 |------|----------|
-| Standalone app | `dist\PersonalAiAgentSurya.exe` |
-| Installer | `release\PersonalAiAgentSurya_Setup.exe` |
+| Standalone app | `dist\AIOverlayAgent.exe` |
+| Installer | `release\AIOverlayAgent_Setup.exe` |
 
 ---
 
-## Step 1 — Build the executable
+## Step 1 â€” Build the executable
 
 ```bat
 build\build_exe.bat
@@ -52,13 +52,13 @@ This script:
    - `console=False` (no console window)
    - `runtime_keyboard_fix.py` for hotkeys
 
-**Success:** prints `Built: ...\dist\PersonalAiAgentSurya.exe`
+**Success:** prints `Built: ...\dist\AIOverlayAgent.exe`
 
 **Failure:** if you see `PermissionError` on `pyinstaller_build`, close the app and retry; the build uses TEMP for work files but may still need to delete a locked folder manually.
 
 ---
 
-## Step 2 — Build the installer
+## Step 2 â€” Build the installer
 
 ```bat
 build\build_installer.bat
@@ -67,7 +67,7 @@ build\build_installer.bat
 This script:
 
 1. Runs `py -3 build\sync_inno_config.py` (updates `installer\app_config.issinc` from `app_config.ini`)
-2. Verifies `dist\PersonalAiAgentSurya.exe` exists
+2. Verifies `dist\AIOverlayAgent.exe` exists
 3. Locates `ISCC.exe` (Inno Setup)
 4. Compiles `installer\AIOverlayAgent.iss`
 
@@ -81,9 +81,9 @@ build\build_installer_DEBUG.bat
 
 ---
 
-## Step 3 — Test the release
+## Step 3 â€” Test the release
 
-1. Run `release\PersonalAiAgentSurya_Setup.exe`
+1. Run `release\AIOverlayAgent_Setup.exe`
 2. Complete the wizard (license, folder, shortcuts)
 3. Set API key (Windows env var or `.env` next to install / in AppData)
 4. Launch from Desktop or Start Menu
@@ -132,11 +132,11 @@ Then rebuild both exe and installer. Change `app_id_guid` only when you intentio
 
 Typical per-user install location:
 
-`%LOCALAPPDATA%\Programs\PersonalAiAgentSurya\`
+`%LOCALAPPDATA%\Programs\AIOverlayAgent\`
 
-Includes: `PersonalAiAgentSurya.exe`, `config.ini`, docs, `.env.example`, uninstaller.
+Includes: `AIOverlayAgent.exe`, `config.ini`, docs, `.env.example`, uninstaller.
 
-User data: `%APPDATA%\PersonalAiAgentSurya\`
+User data: `%APPDATA%\AIOverlayAgent\`
 
 ---
 
@@ -149,11 +149,11 @@ User data: `%APPDATA%\PersonalAiAgentSurya\`
 | `You may not specify more than one script filename` | Quote `ISCC` path in `build_installer.bat` |
 | `Missing dist\...exe` | Run `build_exe.bat` first |
 | Hotkeys dead in exe only | Rebuild with latest spec + `runtime_keyboard_fix.py` |
-| HKLM registry fails on install | Installer uses per-user (`PrivilegesRequired=lowest`) — expected |
+| HKLM registry fails on install | Installer uses per-user (`PrivilegesRequired=lowest`) â€” expected |
 
 ---
 
 ## See also
 
-- [QUICK_BUILD.txt](QUICK_BUILD.txt) — minimal command list  
-- [BUILD_SUMMARY.md](BUILD_SUMMARY.md) — architecture summary
+- [QUICK_BUILD.txt](QUICK_BUILD.txt) â€” minimal command list  
+- [BUILD_SUMMARY.md](BUILD_SUMMARY.md) â€” architecture summary

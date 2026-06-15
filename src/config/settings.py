@@ -28,8 +28,8 @@ def get_resource_root():
 def load_app_config():
     """Load app metadata from app_config.ini (bundled or alongside exe)."""
     defaults = {
-        "name": "PersonalAiAgentSurya",
-        "appdata_folder": "PersonalAiAgentSurya",
+        "name": "AIOverlayAgent",
+        "appdata_folder": "AIOverlayAgent",
         "window_title": "AI OVERLAY",
     }
 
@@ -65,7 +65,7 @@ def load_app_config():
 
 
 APP_META = load_app_config()
-APP_NAME = APP_META.get("name") or "PersonalAiAgentSurya"
+APP_NAME = APP_META.get("name") or "AIOverlayAgent"
 APPDATA_FOLDER = APP_META.get("appdata_folder") or APP_NAME
 WINDOW_TITLE = APP_META.get("window_title") or "AI OVERLAY"
 
@@ -176,7 +176,6 @@ def get_config_value(config, section, key, default):
             "API_OPENROUTER",
             "UI",
             "CAPTURE",
-            "LICENSE",
         ]:
             return config.get(section, key, fallback=default)
     except:

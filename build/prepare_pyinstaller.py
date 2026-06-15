@@ -35,7 +35,7 @@ def main() -> int:
         return 0
     print(
         f"Warning: could not fully remove {LOCAL_WORK}\n"
-        "Close PersonalAiAgentSurya.exe if it is running, then retry.\n"
+        "Close AIOverlayAgent.exe if it is running, then retry.\n"
         "Build will use %TEMP% for work files instead.",
         file=sys.stderr,
     )

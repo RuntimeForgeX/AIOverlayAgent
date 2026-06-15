@@ -12,7 +12,7 @@ def main() -> int:
     cp = configparser.ConfigParser()
     cp.read(config_path, encoding="utf-8")
 
-    app_name = cp.get("APP", "name", fallback="PersonalAiAgentSurya").strip()
+    app_name = cp.get("APP", "name", fallback="AIOverlayAgent").strip()
     exe_base = cp.get("BUILD", "exe_base_name", fallback=app_name).strip()
     publisher = cp.get("BUILD", "publisher", fallback=app_name).strip()
     version = cp.get("BUILD", "version", fallback="1.0.0").strip()

@@ -1,13 +1,37 @@
+# Environment and secrets
 .env
-.venv
+.env.*
+!.env.example
+
+# Python
+.venv/
+.venv_build/
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.DS_Store
 *.egg-info/
+build/
 dist/
 pyinstaller_build/
 release/
-.venv_build/
+
+# Build and cache artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+*.spec.bak
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
 .kimchi

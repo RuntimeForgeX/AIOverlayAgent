@@ -4,7 +4,7 @@
 The "AI Overlay Agent" is a Windows desktop application built with Python and Tkinter. It acts as an always-on-top, transparent AI companion that floats on the user's screen. Its most defining feature is that it remains **invisible to screen recording tools** (like OBS, Google Meet, Zoom) using Windows display capture exclusion APIs (`WDA_EXCLUDEFROMCAPTURE`). It supports screen capture, markdown rendering, and connects to AI providers like OpenRouter, OpenAI, Anthropic, and Gemini.
 
 ## Current Project State
-The project is fully functional as a Windows desktop application. It includes a custom theming engine, screen capture queues, hotkeys, and an offline device-bound licensing system. The app can be built into a standalone executable using PyInstaller and distributed via Inno Setup.
+The project is fully functional as a Windows desktop application. It includes a custom theming engine, screen capture queues, and hotkeys. The app can be built into a standalone executable using PyInstaller and distributed via Inno Setup.
 
 ## Existing Features
 - Always-on-top, draggable, transparent Tkinter UI.
@@ -13,23 +13,20 @@ The project is fully functional as a Windows desktop application. It includes a 
 - Screenshot capturing and compression (JPEG/base64) using `PIL.ImageGrab`.
 - Local persistence of chat history, screenshot queue, and preferences in `%APPDATA%`.
 - Support for LangChain (OpenAI/Anthropic wrappers) and native Google Generative AI (Gemini).
-- Device-bound JWT licensing system with offline verification.
 - Customizable AI prompts (`src/prompts/registry.py`).
 
 ## Important Architectural Decisions
 - **Invisibility Mechanics**: Standard Tkinter popups (`tk.Menu`, `messagebox`) are avoided because they create new Win32 windows that don't inherit the main window's `WDA_EXCLUDEFROMCAPTURE` property. Instead, custom `InvisibleTopLevel` windows are used (e.g., `InvisibleModelDropdown`).
 - **In-App Error Handling**: Errors are intercepted and displayed within the app's chat window (`install_in_app_error_handlers`) to avoid native Windows popup dialogs which would be visible on streams.
 - **Provider Abstraction**: LLM calls are abstracted through `src.services.llm_provider.APIProvider`, standardizing text and multimodal (image) inputs.
-- **Licensing**: Premium features are gated by a JWT-based license validated against a hardcoded public key (`src.licensing`). It verifies hardware fingerprints and checks for system clock rollbacks.
 - **Modular Addons**: Optional complex features can be built in an isolated `modules/` folder with minimal integration hooks in `main.py` and `app.py`. They bring their own storage and UI logic while reusing core providers.
 
 ## Important Files and Directories
-- `main.py`: The entry point that initializes the environment, license gate, modules, and UI.
+- `main.py`: The entry point that initializes the environment and UI.
 - `src/ui/app.py`: The core `OverlayApp` class managing the Tkinter UI and logic.
 - `src/utils/win32_invisibility.py`: Contains `ctypes` wrappers for Windows User32 APIs.
 - `src/services/llm_provider.py`: Handles integrations with AI APIs.
 - `src/services/storage.py`: Manages persistence in `%APPDATA%`.
-- `license-server/`: A Node.js/Prisma backend for generating and activating license keys.
 - `modules/`: Extensible addons folder for optional features that are injected into the core UI.
 
 ## Known Limitations
@@ -44,7 +41,6 @@ The project is fully functional as a Windows desktop application. It includes a 
 
 ## Future Considerations
 - Implement the actual opacity slider functionality.
-- Extend the `license-server` for better subscription management.
 - Add macOS/Linux support (though invisibility is highly Windows-specific).
 
 ## Agent Handoff & Changelog

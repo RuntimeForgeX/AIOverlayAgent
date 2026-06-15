@@ -15,7 +15,6 @@
 - `src/services/`: External API integrations, local storage operations, and screen capture logic.
 - `src/utils/`: Low-level OS hooks (Win32 ctypes).
 - `src/config/`: Configuration parsing and model definitions.
-- `src/licensing/`: Offline JWT license verification logic.
 - `src/prompts/`: Persona configurations.
 
 ## 4. Error Handling

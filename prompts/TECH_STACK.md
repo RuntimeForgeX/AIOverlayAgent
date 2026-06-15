@@ -11,7 +11,6 @@
   - `openai`, `anthropic` (underlying SDKs)
 - **Image Processing**: `pillow` (for `ImageGrab` and base64 JPEG compression)
 - **Global Hotkeys**: `keyboard`
-- **Security & Licensing**: `PyJWT[crypto]`, `cryptography`
 - **Environment Management**: `python-dotenv`
 
 ## Build & Deployment Tools
@@ -23,4 +22,3 @@
 
 ## External Services
 - **LLM Providers**: OpenRouter, OpenAI, Anthropic, Google Gemini
-- **License Server Backend**: Node.js, Prisma (in `license-server/` directory)

@@ -9,10 +9,8 @@ The AI Overlay Agent is a modular Python desktop application. It uses Tkinter fo
   - `/src/services`: Business logic (LLM providers, screen capture, local storage).
   - `/src/utils`: Helper functions, notably `win32_invisibility.py` for Win32 API calls.
   - `/src/config`: Settings management and model routing.
-  - `/src/licensing`: JWT-based offline device-bound license verification.
   - `/src/prompts`: Prompt registries and customized agent personas.
 - `/build` & `/installer`: Scripts for PyInstaller and Inno Setup to create distributables.
-- `/license-server`: A separate Node.js backend for generating and validating license keys.
 
 ## API Architecture
 The application uses an abstract `APIProvider` base class (in `src/services/llm_provider.py`) to handle LLM communication.
@@ -21,10 +19,7 @@ The application uses an abstract `APIProvider` base class (in `src/services/llm_
 
 ## Authentication Architecture
 - **API Keys**: Stored in `.env` or Windows Environment Variables (`OPENROUTER_API_KEY`, etc.). Read directly by the application on startup.
-- **Application Licensing**: Uses RSA-256 JWTs.
-  1. The user activates the app by sending a raw token and their hardware fingerprint to the `/license-server`.
-  2. The server responds with a signed JWT containing the `device_hash` and `exp`.
-  3. The desktop app stores this JWT in `%APPDATA%` and verifies it offline using a bundled public key (`src/licensing/public_key.py`), preventing tampering and checking for clock rollbacks.
+- **Application Access**: The app is fully open source and does not require activation, subscriptions, device binding, or online license checks.
 
 ## State Management Architecture
 - UI State is held within the `OverlayApp` class (Tkinter variables).
