@@ -95,15 +95,9 @@ Source: "POST_INSTALL_INFO.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; Environment template
 Source: "..\.env.example"; DestDir: "{app}"; DestName: ".env.example"; Flags: ignoreversion
 
-; Documentation
-Source: "..\PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\QUICK_TEST.md"; DestDir: "{app}"; Flags: ignoreversion
-
 [Icons]
 ; Start Menu shortcuts
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "AI Overlay for Screen Recording"
-Name: "{group}\Documentation"; Filename: "{app}\README.md"; Comment: "View application documentation"
 Name: "{group}\Configuration"; Filename: "{app}\config.ini"; Comment: "Edit application settings"
 Name: "{group}\Setup API Key"; Filename: "{app}\.env.example"; Comment: "Setup your API key"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"; Comment: "Remove {#MyAppName}"

@@ -24,7 +24,6 @@ if not exist "%PYI_WORK%" mkdir "%PYI_WORK%"
 
 echo.
 echo Building... (work path: %PYI_WORK%)
-echo Close AIOverlayAgent.exe if the build fails with "Access is denied".
 echo.
 
 REM Do not use --clean: it tries to delete locked cache dirs and fails on Windows

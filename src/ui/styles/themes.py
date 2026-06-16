@@ -2,6 +2,13 @@
 # THEME SYSTEM
 # ============================================================================
 
+# Attempt to import Windows registry module for system theme detection.
+try:
+    import winreg
+    _winreg_available = True
+except Exception:
+    _winreg_available = False
+
 THEMES = {
     "dark": {
         "bg_main": "#0a0a0f",
@@ -64,8 +71,8 @@ THEMES = {
 }
 
 # Global mutable reference to current theme colors
-COLORS = dict(THEMES["dark"])
-_current_theme_name = "dark"
+COLORS = dict(THEMES["light"])
+_current_theme_name = "light"
 
 
 def set_active_theme(name):

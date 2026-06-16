@@ -17,6 +17,8 @@ def _set_restrictive_permissions(path: Path):
     try:
         if hasattr(os, "chmod"):
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        if hasattr(os, "chmod"):
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
         pass
 
@@ -57,7 +59,7 @@ def load_theme_preference():
             return prefs.get("theme", "dark")
     except Exception:
         pass
-    return "dark"
+    return "light"
 
 
 def _load_preferences():
@@ -94,6 +96,7 @@ def load_prompt_profile_id():
 
 def clear_screenshot_queue():
     """Remove persisted screenshot queue file (security housekeeping)."""
+    # No UI code here; just clear the screenshot queue file
     try:
         queue_file = get_user_data_root() / "screenshot_queue.json"
         if queue_file.exists():

@@ -11,7 +11,8 @@ from tkinter import scrolledtext
 import keyboard
 import ctypes
 
-from src.ui.styles.themes import COLORS, _current_theme_name, set_active_theme, detect_system_theme
+from src.ui.styles.themes import COLORS, set_active_theme, detect_system_theme
+import src.ui.styles.themes as theme_mod
 from src.config.settings import (
     get_config_value,
     WINDOW_TITLE,
@@ -211,6 +212,7 @@ class OverlayApp:
            lambda: self._move_overlay(0, -self.MOVE_STEP), "Move overlay up")
         rc("move_down", "move_down", "ctrl+shift+alt+down",
            lambda: self._move_overlay(0, self.MOVE_STEP), "Move overlay down")
+        rc("theme_toggle", "theme_toggle", "ctrl+shift+alt+p", self._cycle_theme, "Toggle theme"),
         rc("reset_position", "reset_position", "ctrl+shift+0",
            self._reset_overlay_position, "Reset overlay position")
 
@@ -479,6 +481,7 @@ class OverlayApp:
             ("📷 Capture", self.hotkey_capture),
             ("🗑 Clear", self.hotkey_clear),
             ("💾 Export", self.hotkey_export),
+            ("🌓 Theme", self._cycle_theme),
             ("✕ Close", self._on_window_close),
         ]
         for text, cmd in btn_defs:
@@ -738,7 +741,7 @@ class OverlayApp:
     def _cycle_theme(self):
         """Cycle through dark → light → system themes."""
         try:
-            idx = self.THEME_CYCLE.index(_current_theme_name)
+            idx = self.THEME_CYCLE.index(theme_mod._current_theme_name)
         except ValueError:
             idx = 0
         next_theme = self.THEME_CYCLE[(idx + 1) % len(self.THEME_CYCLE)]

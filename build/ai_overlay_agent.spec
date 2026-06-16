@@ -99,14 +99,12 @@ hiddenimports += [
 datas = [
     (os.path.join(_PROJECT_ROOT, "app_config.ini"), "."),
     (os.path.join(_PROJECT_ROOT, "config.ini"), "."),
-    (os.path.join(_PROJECT_ROOT, "prompts"), "prompts"),
     # Prompt registry profiles (file-based discovery in frozen builds)
     (os.path.join(_PROJECT_ROOT, "src", "prompts"), "src/prompts"),
-]
+    ]
 
 _EXCLUDES = [
     "googleapiclient.discovery_cache",
-    "googleapiclient.discovery_cache.documents",
     "langchain_community",
     "matplotlib",
     "numpy",
