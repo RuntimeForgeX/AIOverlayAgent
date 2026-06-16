@@ -134,6 +134,10 @@ a = Analysis(
     noarchive=False,
 )
 
+
+
+
+
 a.datas = _drop_google_discovery_cache(a.datas)
 a.binaries = _drop_google_discovery_cache(a.binaries)
 
@@ -150,6 +154,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
+    icon=os.path.join(_PROJECT_ROOT, "src", "ui", "icon.ico"),
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
