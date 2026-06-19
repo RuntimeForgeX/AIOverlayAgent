@@ -7,7 +7,7 @@ import re
 import tkinter as tk
 from tkinter import font as tkfont
 
-from src.ui.styles.themes import COLORS, THEMES, apply_custom_theme, set_active_theme
+from src.ui.styles.themes import COLORS, apply_custom_theme, set_active_theme
 from src.utils.win32_invisibility import (
     InvisibleTopLevel,
     apply_overlay_window_config,
@@ -19,46 +19,119 @@ from src.ui.close_button import create_header_close_button
 # Prompt sent to the AI
 # ------------------------------------------------------------------
 THEME_ANALYSIS_PROMPT = (
-    "Analyze the UI colors of the application visible in this screenshot. "
-    "Return ONLY a valid JSON object with no markdown formatting, no code blocks, "
-    "and no extra commentary. Match these exact keys and use hex color values (#RRGGBB):\n\n"
-    "bg_main, bg_header, bg_input, bg_chat, accent_green, accent_blue, "
-    "text_normal, text_dim, error_red, code_bg, code_fg, border, "
-    "heading_fg, bold_fg, italic_fg, blockquote_bg, blockquote_fg, link_fg, "
-    "table_header_bg, table_border_fg, thumb_bg, thumb_border, remove_btn_fg, "
-    "code_keyword, code_string, code_comment, code_number.\n\n"
-    "Choose colors that harmonize with the dominant colors in the screenshot."
+    "Analyze the screenshot. Extract colors directly from the UI shown in the "
+    "screenshot and build a 26-color palette for an overlay window. Every color "
+    "must be sampled from the dominant colors visible in the screenshot itself.\n\n"
+
+    "# REQUIRED OUTPUT FORMAT\n"
+    "Return ONLY a raw JSON object. No markdown. No code blocks. No extra text.\n\n"
+
+    "# REQUIRED KEYS (26 total)\n"
+    "- bg_main\n"
+    "- bg_header\n"
+    "- bg_input\n"
+    "- bg_chat\n"
+    "- accent_green\n"
+    "- accent_blue\n"
+    "- text_normal\n"
+    "- text_dim\n"
+    "- error_red\n"
+    "- code_bg\n"
+    "- code_fg\n"
+    "- border\n"
+    "- heading_fg\n"
+    "- bold_fg\n"
+    "- italic_fg\n"
+    "- blockquote_bg\n"
+    "- blockquote_fg\n"
+    "- link_fg\n"
+    "- table_header_bg\n"
+    "- table_border_fg\n"
+    "- thumb_bg\n"
+    "- thumb_border\n"
+    "- remove_btn_fg\n"
+    "- code_keyword\n"
+    "- code_string\n"
+    "- code_comment\n"
+    "- code_number\n\n"
+
+    "# INSTRUCTIONS\n"
+    "1. Examine the screenshot pixel by pixel.\n"
+    "2. Sample background colors from actual background pixels: bg_main, bg_header, "
+    "bg_input, bg_chat, code_bg, blockquote_bg, table_header_bg, thumb_bg.\n"
+    "3. Sample text colors from actual text pixels: text_normal, text_dim, heading_fg, "
+    "bold_fg, italic_fg, code_fg, blockquote_fg, link_fg, remove_btn_fg. "
+    "These must be real text colors visible in the screenshot, not guessed or defaulted.\n"
+    "4. Sample accent and highlight colors from buttons, links, or highlighted elements: "
+    "accent_green, accent_blue, error_red, border, thumb_border, code_keyword, "
+    "code_string, code_comment, code_number, table_border_fg.\n"
+    "5. Do not invent or default any color. Every hex value must trace back to a visible "
+    "pixel in the screenshot.\n"
+    "6. All values must be 6-digit hex (#rrggbb format).\n"
+    "7. Ensure text is readable against its background (sufficient contrast).\n"
+    "8. Return ONLY the JSON object — nothing before or after it."
 )
 
 
 # ------------------------------------------------------------------
 # Parse / validate
 # ------------------------------------------------------------------
+def _strip_markdown(text: str) -> str:
+    """Remove markdown code fences and surrounding whitespace."""
+    text = re.sub(r"```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```", "", text)
+    return text.strip()
+
+
+def _extract_json_dict(text: str) -> dict | None:
+    """Find the first well-formed JSON object inside arbitrary text."""
+    text = _strip_markdown(text)
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    # Use brace-balance to locate the matching closing brace
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start : i + 1]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+
+    # Fallback: try the outermost braces
+    end = text.rfind("}")
+    if end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
 def parse_ai_theme_response(response_text: str) -> tuple[dict | None, str]:
     """Extract JSON from AI response and return (theme_dict, error_msg)."""
-    text = response_text.strip()
-
-    # Strip markdown code fences if present
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
-        text = text.strip()
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        return None, f"Invalid JSON: {exc}"
+    data = _extract_json_dict(response_text)
+    if data is None:
+        return None, "Could not find a valid JSON object in the response"
 
     if not isinstance(data, dict):
         return None, "AI response is not a JSON object"
 
+    # Strict validation — all keys must come from the AI response.
+    # No built-in fallback colors are ever mixed in.
     success, err = apply_custom_theme(data)
-    if not success:
-        return None, err
+    if success:
+        return dict(data), ""
 
-    # Success — but apply_custom_theme already mutated COLORS globally.
-    # Return the parsed dict so caller can decide whether to keep it.
-    return dict(data), ""
+    return None, err
 
 
 # ------------------------------------------------------------------
