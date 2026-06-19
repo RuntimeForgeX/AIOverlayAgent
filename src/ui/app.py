@@ -71,6 +71,11 @@ from src.services.llm_provider import get_provider, HumanMessage, AIMessage
 from src.ui.markdown.renderer import configure_markdown_tags, render_markdown, clean_bmp
 from src.ui.cursor import refresh_cursor_policy
 from src.ui.close_button import create_header_close_button
+from src.ui.theme_adapter import (
+    THEME_ANALYSIS_PROMPT,
+    parse_ai_theme_response,
+    AdaptThemePreview,
+)
 from src.ui.shortcut_manager import ShortcutManager
 
 # ============================================================================
@@ -482,6 +487,7 @@ class OverlayApp:
             ("🗑 Clear", self.hotkey_clear),
             ("💾 Export", self.hotkey_export),
             ("🌓 Theme", self._cycle_theme),
+            ("🎨 Adapt", self._adapt_theme),
             ("✕ Close", self._on_window_close),
         ]
         for text, cmd in btn_defs:
@@ -814,6 +820,126 @@ class OverlayApp:
 
         # Rebuild thumbnails with new colors
         self._rebuild_thumbnail_strip()
+
+    # ------------------------------------------------------------------
+    # Theme adaptation (AI-driven)
+    # ------------------------------------------------------------------
+
+    def _adapt_theme(self):
+        """Capture screen, ask AI for theme colors, preview, and apply."""
+        if self.is_sending:
+            self.add_system_message("[WARN] Cannot adapt theme while AI is thinking")
+            return
+
+        if not self.provider:
+            self.add_system_message("[WARN] No AI provider configured")
+            return
+
+        if not self.provider.supports_vision():
+            self.add_system_message("[WARN] Current model does not support image analysis")
+            return
+
+        # Hide overlay so the target app is visible in the screenshot
+        self.root.withdraw()
+        time.sleep(0.4)
+
+        max_w = int(get_config_value(self.config, "CAPTURE", "max_width", "1280"))
+        quality = int(get_config_value(self.config, "CAPTURE", "jpeg_quality", "82"))
+        base64_image = capture_and_compress_screenshot(max_width=max_w, jpeg_quality=quality)
+
+        present_overlay_window(self.root)
+        if self._click_through_active:
+            apply_click_through(self.root)
+
+        if not base64_image:
+            self.add_system_message("[WARN] Screenshot capture failed")
+            return
+
+        self.is_sending = True
+        self.status_label.config(text="analyzing theme...")
+        self.add_system_message("[theme] analyzing active app...")
+
+        message_content = {
+            "image": base64_image,
+            "text": THEME_ANALYSIS_PROMPT,
+        }
+
+        def _on_adapt_response(response_text, tokens):
+            self.total_input_tokens += tokens["input"]
+            self.total_output_tokens += tokens["output"]
+            self.root.after(0, lambda: self._handle_adapt_response(response_text))
+
+        def _on_adapt_error(error_text):
+            self.root.after(0, lambda: self._handle_adapt_error(error_text))
+
+        def _api_call():
+            try:
+                # We do NOT want this to pollute normal conversation history.
+                # Use a temporary provider instance with no history.
+                from src.config.models import resolve_model_label
+                from src.services.llm_provider import get_provider
+                from src.prompts import get_prompt_by_id
+
+                profile = get_prompt_by_id(self.selected_prompt_id)
+                system_prompt = profile["systemPrompt"] if profile else None
+                temp_provider = get_provider(self.config, system_prompt=system_prompt)
+                temp_provider.send_message(
+                    message_content,
+                    _on_adapt_response,
+                    _on_adapt_error,
+                )
+            except Exception as e:
+                _on_adapt_error(str(e))
+
+        thread = threading.Thread(target=_api_call, daemon=True)
+        thread.start()
+
+    def _handle_adapt_response(self, response_text):
+        """Parse AI theme response and show preview."""
+        self.is_sending = False
+        self.status_label.config(
+            text=f"ready · {self.total_input_tokens} in / {self.total_output_tokens} out tokens"
+        )
+
+        # Save current colors so we can restore on cancel
+        original_colors = dict(COLORS)
+        original_name = theme_mod._current_theme_name
+
+        adapted_theme, error = parse_ai_theme_response(response_text)
+        if adapted_theme is None:
+            # Restore original colors (parse_ai_theme_response may have mutated COLORS)
+            COLORS.clear()
+            COLORS.update(original_colors)
+            self.add_system_message(f"[WARN] Theme adaptation failed: {error}")
+            self.status_label.config(text="theme adaptation failed")
+            return
+
+        # Preview with Apply / Cancel
+        def _apply():
+            theme_mod._current_theme_name = "custom"
+            self._apply_theme()
+            save_theme_preference("custom")
+            from src.services.storage import save_custom_theme
+            save_custom_theme(adapted_theme)
+            self.add_system_message("[OK] theme adapted to current app")
+
+        def _cancel():
+            COLORS.clear()
+            COLORS.update(original_colors)
+            theme_mod._current_theme_name = original_name
+            self._apply_theme()
+            self.add_system_message("[theme] adaptation cancelled")
+
+        self._apply_theme()  # preview adapted colors live on main UI
+        AdaptThemePreview(self.root, adapted_theme, _apply, _cancel)
+
+    def _handle_adapt_error(self, error_text):
+        """Show non-blocking error after adaptation fails."""
+        self.is_sending = False
+        self.status_label.config(
+            text=f"ready · {self.total_input_tokens} in / {self.total_output_tokens} out tokens"
+        )
+        self.add_system_message(f"[WARN] Theme adaptation error: {error_text}")
 
     # ------------------------------------------------------------------
     # Chat display

@@ -1,14 +1,16 @@
-﻿AIOverlayAgent â€“ Usage Guidelines
+# AIOverlayAgent – Usage Guidelines
 
-This software is intended for education and productivity use.
+## Overview
+This document provides clear instructions on how to responsibly use the AI Overlay Agent application.
 
-Do not use this software for:
-- Cheating on exams or violating academic integrity policies
-- Unauthorized access, surveillance, or data theft
-- Any illegal, harmful, or malicious activity
+## Responsible Use
+- **Do not** use this software for cheating on exams or violating academic integrity policies.
+- **Do not** engage in unauthorized access, surveillance, or data theft.
+- **Do not** perform any illegal, harmful, or malicious activities.
 
-Notes:
-- This app may call thirdâ€‘party AI APIs and requires you to provide your own API key(s).
-- You are responsible for complying with the AI provider terms, local laws, and the policies of your school or workplace.
+## Important Notes
+- The application may call third‑party AI APIs. You must provide your own API key(s).
+- You are responsible for complying with the terms of the AI provider, local laws, and any institutional policies.
 
-By continuing installation, you agree to use this application responsibly.
+## Acceptance
+By proceeding with the installation, you agree to use this application responsibly and in accordance with the above guidelines.

@@ -62,6 +62,24 @@ def load_theme_preference():
     return "light"
 
 
+def save_custom_theme(colors_dict):
+    """Save a custom color theme dict to AppData."""
+    prefs_file = get_user_data_root() / "preferences.json"
+    _ensure_private_dir(prefs_file.parent)
+    prefs = _load_preferences()
+    prefs["custom_theme"] = colors_dict
+    _save_preferences(prefs)
+
+
+def load_custom_theme():
+    """Load a custom color theme dict from AppData."""
+    prefs = _load_preferences()
+    theme = prefs.get("custom_theme")
+    if isinstance(theme, dict):
+        return theme
+    return None
+
+
 def _load_preferences():
     prefs_file = get_user_data_root() / "preferences.json"
     try:

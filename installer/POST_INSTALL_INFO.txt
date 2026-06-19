@@ -1,44 +1,53 @@
-﻿========================================
-   AI Overlay Agent - Installation Complete!
-========================================
+# AI Overlay Agent – Installation Complete
 
-Thank you for installing AI Overlay Agent!
+## Thank You
+Thank you for installing **AI Overlay Agent**!
 
-NEXT STEPS:
+## Next Steps
 
-1. ADD YOUR API KEY
-   - A shortcut "Setup API Key" has been created in your Start Menu
-   - Go environment variables of your windows laptop
-   - And add one of your that API key you have
-   - ANTHROPIC_API_KEY or OPENAI_API_KEY or GEMINI_API_KEY
-   - Supported APIs: Anthropic Claude, OpenAI, or Google Gemini
+### 1. Add Your API Key
+- Use the **Setup API Key** shortcut created in the Start Menu.
+- Open Windows Environment Variables.
+- Add one of the following keys:
+  - `ANTHROPIC_API_KEY`
+  - `OPENAI_API_KEY`
+  - `GEMINI_API_KEY`
+  - `OPENROUTER_API_KEY`
+- ✅ Multiple API provider support
 
-2. LAUNCH THE APPLICATION
-   - Click the desktop shortcut, OR
-   - Run from Start Menu > AIOverlayAgent
+### 3. Keyboard Shortcuts
+- **Ctrl + Shift + Space** – Show / hide the app
+- **Ctrl + Shift + S** – Capture screen and send to AI
+- **Ctrl + Shift + C** – Clear conversation
+- **Ctrl + Shift + I** – Focus text input
+- **Ctrl + Shift + E** – Export chat to Markdown
+- **Ctrl + Shift + Enter** – Send prompt
+- **Ctrl + Shift + R** – Regenerate last AI response
+- **Ctrl + Shift + X** – Stop AI generation
+- **Ctrl + Shift + K** – Copy last AI response
+- **Ctrl + Shift + M** – Cycle prompt profiles / toggle mode
+- **Ctrl + Shift + Left** – Move UI left
+- **Ctrl + Shift + Right** – Move UI right
+- **Ctrl + Shift + Alt + Up** – Move UI up
+- **Ctrl + Shift + Alt + Down** – Move UI down
+- **Ctrl + Shift + Alt + P** – Toggle theme
+- **Ctrl + Shift + 0** – Reset window position
+- **Ctrl + Shift + T** – Toggle click‑through mode
+- **Ctrl + Shift + PageUp** – Jump to previous AI message
+- **Ctrl + Shift + PageDown** – Jump to next AI message
+- **Ctrl + Shift + Home** – Jump to top of conversation
+- **Ctrl + Shift + End** – Jump to latest message
+- **Ctrl + Shift + Alt + PageDown** – Cycle model forward
+- **Ctrl + Shift + Alt + PageUp** – Cycle model backward
 
-3. Short Keys 
-Ctrl+Shift+Space - Show / hide app
-Ctrl+Shift+S - Capture screen and send to AI
-Ctrl+Shift+C - Clear conversation
-Ctrl+Shift+I - Focus text input
-Ctrl+Shift+E - Export chat to Markdown
+## Shortcuts Created
+- ✅ Desktop icon (quick launch)
+- ✅ Start Menu entry
+- ✅ Optional startup folder (if selected)
 
-FEATURES:
-  âœ“ Real-time AI assistance for screen analysis
-  âœ“ Completely invisible to screen recording (OBS, Zoom, Teams, etc.)
-  âœ“ Perfect for teaching and content creation
-  âœ“ Secure - runs locally on your machine
-  âœ“ Multiple API provider support
+## Uninstall
+`Settings → Apps → Apps & Features → AIOverlayAgent → Uninstall`
 
-SHORTCUTS CREATED:
-  âœ“ Desktop icon (for quick launch)
-  âœ“ Start Menu entry
-  âœ“ Optional: Startup folder (if selected)
+For more information, see the shortcuts created in the Start Menu.
 
-TO UNINSTALL:
-  Settings > Apps > Apps & Features > AIOverlayAgent > Uninstall
-
-For more information and documentation, visit the Start Menu shortcuts.
-
-Enjoy using AIOverlayAgent !
+Enjoy using **AIOverlayAgent**!

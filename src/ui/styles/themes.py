@@ -81,11 +81,44 @@ def set_active_theme(name):
     resolved = name
     if name == "system":
         resolved = detect_system_theme()
+    if name == "custom":
+        from src.services.storage import load_custom_theme
+        custom = load_custom_theme()
+        if custom:
+            apply_custom_theme(custom)
+            _current_theme_name = "custom"
+            return
+        resolved = "dark"
     if resolved not in THEMES:
         resolved = "dark"
     _current_theme_name = name  # preserve "system" label
     COLORS.clear()
     COLORS.update(THEMES[resolved])
+
+
+def apply_custom_theme(colors_dict):
+    """Apply a user-provided color dict directly to COLORS.
+
+    Validates that all required keys are present and are valid hex colors.
+    Returns (success: bool, error_msg: str).
+    """
+    required_keys = set(THEMES["dark"].keys())
+
+    missing = required_keys - set(colors_dict.keys())
+    if missing:
+        return False, f"missing theme keys: {', '.join(sorted(missing))}"
+
+    invalid = []
+    for key in required_keys:
+        val = colors_dict.get(key, "")
+        if not isinstance(val, str) or not val.startswith("#") or len(val) not in (4, 7):
+            invalid.append(key)
+    if invalid:
+        return False, f"invalid hex colors for keys: {', '.join(sorted(invalid))}"
+
+    COLORS.clear()
+    COLORS.update(colors_dict)
+    return True, ""
 
 
 def detect_system_theme():

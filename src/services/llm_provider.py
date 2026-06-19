@@ -111,6 +111,10 @@ class APIProvider:
         """Update the system prompt used for subsequent API calls."""
         self.system_prompt = prompt_text
 
+    def supports_vision(self):
+        """Return True if this provider can process image messages."""
+        return True
+
     def _add_user_content(self, message_content):
         """Add user content to history based on format."""
         if isinstance(message_content, str):
