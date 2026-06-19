@@ -218,6 +218,7 @@ class OverlayApp:
         rc("move_down", "move_down", "ctrl+shift+alt+down",
            lambda: self._move_overlay(0, self.MOVE_STEP), "Move overlay down")
         rc("theme_toggle", "theme_toggle", "ctrl+shift+alt+p", self._cycle_theme, "Toggle theme"),
+        rc("adapt_theme", "adapt_theme", "ctrl+shift+alt+a", self._adapt_theme, "Adapt theme to current app"),
         rc("reset_position", "reset_position", "ctrl+shift+0",
            self._reset_overlay_position, "Reset overlay position")
 

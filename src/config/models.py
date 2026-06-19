@@ -20,12 +20,14 @@ MODEL_CHOICES: list[tuple[str, str, str]] = [
     ("OR Gemini 3.1 Pro", "openrouter", "google/gemini-3.1-pro-preview"),
     ("OR GPT-5.5", "openrouter", "openai/gpt-5.5"),
     ("OR kimi 4.6","openrouter","moonshotai/kimi-k2.6"),
+    ("Free OR gpt-oss","openrouter","openai/gpt-oss-120b:free"),
     # --- Direct OpenAI (OPENAI_API_KEY) — Chat Completions compatible ---
     ("GPT-5.5 (direct)", "openai", "gpt-5.5"),
     ("GPT-5.2 (direct)", "openai", "gpt-5.2"),
     # --- Direct Google Gemini (GEMINI_API_KEY) ---
     ("Gemini 3.1 Pro (direct)", "gemini", "gemini-3.1-pro-preview"),
     ("Free Gemini 3.5-flash","gemini","gemini-3.5-flash"),
+    ("Free Gemini 2.5 flash","gemini","gemini-2.5-flash"),
     # --- Direct Anthropic (ANTHROPIC_API_KEY) ---
     ("Claude Opus 4.8 (direct)", "anthropic", "claude-opus-4-8"),
 ]

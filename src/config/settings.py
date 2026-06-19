@@ -3,7 +3,7 @@ import sys
 import configparser
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -95,35 +95,59 @@ def get_candidate_dotenv_files(app_name=None):
 def load_environment():
     """
     Load API keys and secrets into os.environ.
-
-    Windows user/system environment variables are already in os.environ and always win.
-    .env files only fill in keys that are not already set.
+    
+    In a built (frozen) application only Windows user/system environment
+    variables are used — .env files are intentionally ignored.
+    
+    In development (non-frozen) the existing os.environ is preserved:
+    Windows env vars always take priority and .env files only fill in
+    keys that are missing.
     """
-    # Capture any existing system/user env vars so they are never overwritten.
-    api_key_names = (
-        "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-        "OPENROUTER_API_KEY",
-    )
-    saved = {name: os.environ.get(name) for name in api_key_names}
+    # Built apps should only trust the OS env, never a .env file.
+    if is_frozen_app():
+        return
 
     for dotenv_file in get_candidate_dotenv_files():
         try:
             if dotenv_file.is_file():
-                load_dotenv(dotenv_path=dotenv_file, override=False, encoding="utf-8")
+                env_vars = dotenv_values(
+                    dotenv_path=str(dotenv_file), encoding="utf-8"
+                )
+                for key, value in env_vars.items():
+                    if value is not None and key not in os.environ:
+                        os.environ[key] = value
         except Exception:
             pass
 
-    # Restore anything that python-dotenv might have clobbered.
-    for name, original in saved.items():
-        if original is not None:
-            os.environ[name] = original
+
+def _read_windows_registry_env(name):
+    """Read env var directly from Windows registry (user overrides system)."""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    for hive, path in (
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+    ):
+        try:
+            with winreg.OpenKey(hive, path) as key:
+                value, _ = winreg.QueryValueEx(key, name)
+                if value:
+                    return str(value).strip()
+        except OSError:
+            continue
+    return None
 
 
 def get_api_key(name):
-    """Read an API key from the process environment (system env or .env)."""
+    """Read an API key from the process environment or Windows registry."""
     value = os.environ.get(name)
-    if value is None:
-        value = os.getenv(name)
+    if not value:
+        value = _read_windows_registry_env(name)
     if not value:
         return None
     value = value.strip()
