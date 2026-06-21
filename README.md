@@ -7,14 +7,29 @@ The project is fully open source. There is no license activation, subscription g
 ## Features
 
 - Always-on-top tkinter overlay with dark, light, and system themes.
+- **AI-powered theme adapter** — parse AI-generated color palettes and preview theme changes instantly.
 - Global hotkeys for showing the overlay, capturing the screen, sending prompts, exporting chats, and navigating responses.
 - Screenshot queue with JPEG compression before sending to multimodal models.
-- Configurable providers: OpenRouter, OpenAI, Anthropic, and Gemini.
-- Model picker in the app header.
+- Configurable providers: **OpenRouter**, **OpenAI**, **Anthropic**, and **Gemini**.
+- Model picker in the app header with forward/backward cycling.
 - Markdown rendering for AI responses.
+- **Click-through mode** for unobtrusive overlay interaction.
+- **Win32 invisibility utilities** — randomized window titles, capture exclusion, and taskbar hiding.
 - Local chat history, screenshot queue, and preferences under the user's AppData directory.
 - Windows display-capture exclusion support for common screen-sharing workflows.
 - In-app error reporting without blocking startup dialogs.
+
+### Screenshots
+
+#### Dark Theme
+![Dark Theme](assets/AppDarkTheme.png)
+
+#### Light Theme
+![Light Theme](assets/AppLightTheme.png)
+
+#### LeetCode Answer Example
+![LeetCode Example 1](assets/leetcodeans.png)
+![LeetCode Example 2](assets/LeetcodeAns2.png)
 
 ## Requirements
 
@@ -29,8 +44,8 @@ The project is fully open source. There is no license activation, subscription g
 ## Installation
 
 ```bat
-git clone https://github.com/your-org/ai-overlay-agent.git
-cd ai-overlay-agent
+git clone https://github.com/suryanshvermaa/personal-agent.git
+cd personal-agent
 py -3 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -58,7 +73,6 @@ Useful files:
 
 - `config.ini`: provider, model, UI, capture, and hotkey defaults.
 - `app_config.ini`: app name, executable name, publisher, and version.
-- `USER_GUIDE.md`: end-user setup, configuration, and shortcut guide.
 - `USER_GUIDE.html`: single-file browser documentation with copy buttons.
 - `src/`: application code.
 - `prompts/` and `src/prompts/`: prompt documentation and runtime prompt profiles.
@@ -87,7 +101,7 @@ The installer build requires Inno Setup 6.
 
 ## Usage Guide
 
-For a complete end-user guide, See [USER_GUIDE.html](USER_GUIDE.html).
+For a complete end-user guide, see [USER_GUIDE.html](USER_GUIDE.html).
 
 1. Start the app with `python main.py` or the packaged executable.
 2. Select a model from the header dropdown.
@@ -107,7 +121,7 @@ Default hotkeys are configured in `config.ini`:
 
 ## Privacy
 
-Screenshots and prompts are sent to the AI provider you configure. Avoid capturing sensitive information unless you are comfortable sending it to that provider. See [PRIVACY.md](PRIVACY.md) for more detail.
+Screenshots and prompts are sent to the AI provider you configure. Avoid capturing sensitive information unless you are comfortable sending it to that provider.
 
 ## Contributing
 
