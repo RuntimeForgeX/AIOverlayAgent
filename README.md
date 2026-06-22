@@ -26,18 +26,25 @@ Whether you're solving coding problems, debugging applications, studying, writin
 
 ### 🖼️ Screenshots
 
-#### APP UI
+#### 🌐 Landing Page
 
-<div style="display:flex; justify-content:center;">
-<img src="assets/AppLightTheme.png" style="margin: 4px" alt="Light Theme" width="300">
-<img src="assets/AppDarkTheme.png" style="margin: 4px" alt="Dark Theme" width="300">
+<div style="display:flex; justify-content:center; flex-direction: column; align-items: center; gap: 8px;">
+  <img src="assets/hero.png" alt="Landing Page Hero" width="800">
+  <img src="assets/stealth.png" alt="Stealth Mode" width="800">
+</div>
+
+#### 🖥️ App UI
+
+<div style="display:flex; justify-content:center; gap: 8px; flex-wrap: wrap;">
+  <img src="assets/AppLightTheme.png" alt="Light Theme" width="400">
+  <img src="assets/AppDarkTheme.png" alt="Dark Theme" width="400">
 </div>
 
 #### 💻 LeetCode Answer Example
 
-<div style="display:flex; justify-content:center; align-Items: center; flex-direction: column;">
-<img src="assets/leetcodeans.png" alt="LeetCode Example 1" style="margin: 4px" width="600">
-<img src="assets/LeetcodeAns2.png" alt="LeetCode Example 2" style="margin: 4px" width="600">
+<div style="display:flex; justify-content:center; align-items: center; flex-direction: column; gap: 8px;">
+  <img src="assets/leetcodeans.png" alt="LeetCode Example 1" width="800">
+  <img src="assets/LeetcodeAns2.png" alt="LeetCode Example 2" width="800">
 </div>
 
 ---
